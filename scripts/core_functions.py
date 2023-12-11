@@ -43,12 +43,10 @@ def chrome_get_page_content(c_url):
         
         driver.get(c_url)
         
-        driver.get(c_url)
-        
         core_modules.time.sleep(10)
 
         # Execute JavaScript and get the page content
-        page_content = driver.execute_script("return document.getElementsByTagName('html')[0].innerHTML")
+        page_content = driver.execute_script("return document.body.innerHTML")
 
         driver.close()
 
