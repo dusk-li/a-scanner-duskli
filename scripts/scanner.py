@@ -17,6 +17,7 @@ if rslt == 0: #Success
     
     # Open File
     print("Processing domains...")
+    num_domains = sum(1 for _ in open('/tmp/downloads/color-schemedark.txt', 'r'))
     with open('/tmp/downloads/color-schemedark.txt', 'r') as file:
         # Loop through URLs in file
         for url in file:
