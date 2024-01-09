@@ -5,7 +5,7 @@ import core_functions
 pwww_url = 'https://publicwww.com/websites/%22color-scheme%3Adark%22/'
 pwww_xpath = '//a[contains(@href,"?export=urls")]'
 
-# Get liat of URLs matching source code query
+# Get list of URLs matching source code query
 print("Getting sites that have dark mode in source code from publicwww.com")
 rslt = core_functions.chrome_download_linked_file(pwww_url,pwww_xpath)
 
