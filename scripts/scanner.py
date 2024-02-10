@@ -43,7 +43,7 @@ if rslt == 0: #Success
                 if len(cats) > 0:
                     for cat in cats:
                         if cat in banned_sites_data:
-                            print(f"Category '{cat}' is in the banned sites data. Exiting.")
+                            print("Category",cat," is in the banned sites data. Skipping.")
                             break
                     else:
                         fname = "/tmp/sites/" + domain + ".txt"
