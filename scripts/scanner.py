@@ -2,7 +2,7 @@ import core_modules
 import core_functions
 
 #Initialise url and xpath query for source code search
-pwww_url = 'https://publicwww.com/websites/%22color-scheme%3Adark%22/'
+pwww_url = 'https://publicwww.com/websites/%22prefers-color-scheme%3A%22/'
 pwww_xpath = '//a[contains(@href,"?export=urls")]'
 
 # Get list of URLs matching source code query
@@ -21,8 +21,8 @@ if rslt == 0: #Success
     
     # Open File
     print("Processing domains...")
-    num_domains = sum(1 for _ in open('/tmp/downloads/color-schemedark.txt', 'r'))
-    with open('/tmp/downloads/color-schemedark.txt', 'r') as file:
+    num_domains = sum(1 for _ in open('/tmp/downloads/prefers-color-scheme.txt', 'r'))
+    with open('/tmp/downloads/prefers-color-scheme.txt', 'r') as file:
         lines = file.readlines()  # Read all lines into a list
         num_domains = len(lines)  # Get the total number of domains
         for line in lines:
@@ -47,9 +47,7 @@ if rslt == 0: #Success
                             break
                     else:
                         fname = "/tmp/sites/" + domain + ".txt"
-                        print("Success! Writing ",len(cats), "categories to",fname)
-                        f = open (fname, 'w')
-                        for cat in cats:
-                            f.write(cat.text + "\n")
-                        f.close()
+                        print("Success! There are",len(cats), "categories for", domain)
+                        contrast = core_functions.chrome_check_contrast(domain)
+                        print("Domain", domain, "contrast check result: ", contrast)
                 i = i + 1

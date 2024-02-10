@@ -76,22 +76,43 @@ def chrome_get_page_content(c_url):
 
     return page_content
 
-def get_domains_from_file(file_path):
-    with open(file_path, 'r') as file:
-        return [core_modules.urlparse(line).netloc for line in file]
+def chrome_check_contrast(t_url):
+    # Setup options for headless Chrome
+    options = core_modules.Options()
+    options.add_argument("--headless")
+    prefs = {"download.default_directory" : "/tmp/downloads/"}
+    options.add_experimental_option("prefs",prefs)
 
-def check_categories(cats, banned_sites_data):
-    banned_categories = set(banned_sites_data)
-    for i, domain in enumerate(cats, start=1):
-        print(f"Processing domain {i} of {len(cats)}:", domain)
-        symantec_url = f"https://sitereview.symantec.com/#/lookup-result/{domain}"
-        rslt = chrome_get_page_content(symantec_url)
-        if rslt == -1:
-            raise ValueError(f"Failure getting page content from domain: {domain}")
-        soup = core_modules.BeautifulSoup(rslt, 'html.parser')
-        cats = soup.find_all("span", class_="clickable-category")
-        if any(cat.text in banned_categories for cat in cats):
-            print(f"Category found for domain {domain}. Exiting.")
-            break
-    else:
-        print("No matching categories found. Continue processing.")
+    # Initialize the Chrome driver
+    driver = core_modules.webdriver.Chrome(options=options)
+    try:
+        driver.get("https://color.a11y.com/Contrast/")
+
+        input_field = driver.find_element(core_modules.By.NAME, "urltotest")
+        
+        input_field.send_keys(t_url)
+
+        check_button = driver.find_element(core_modules.By.NAME, "submitbutton")
+
+        check_button.click()
+
+        core_modules.time.sleep(5)
+
+        page_content = driver.execute_script("return document.body.innerHTML")
+        soup = core_modules.BeautifulSoup(page_content, 'html.parser')
+        failed = soup.find_all("div", class_="nocongratsbox")
+        passed = soup.find_all("div", class_="congratsbox")
+        driver.quit()
+        
+        if len(failed) > 0:
+            return "FAIL"
+        if len(passed) > 0:
+            return "PASS"
+
+    except Exception as e:
+
+        print(e)
+        
+        return -1
+    
+    return 0
