@@ -61,6 +61,7 @@ if rslt == 0: #Success
                         # Source list was pulled from a publicwww crawl of sites that contain "prefers-color-scheme: dark"
                         # Hence score of 2 for auto detection 
                         dark_mode_score = 2
+                        dark_mode = "Auto"
                         
                         if contrast == "PASS":
                             contrast_score = 1
@@ -74,7 +75,7 @@ if rslt == 0: #Success
 ---
 category: {site_cats}
 url: {domain}
-dark_mode: "Auto"
+dark_mode: {dark_mode}
 contrast_accessibility: {contrast}
 accessibility_rating: {site_score}/3
 last_updated: {today}
