@@ -1,7 +1,7 @@
 from requests_html import HTMLSession
 from fake_useragent import UserAgent
 from pathlib import Path
-import yaml
+from datetime import date
 import requests
 import wget
 import time

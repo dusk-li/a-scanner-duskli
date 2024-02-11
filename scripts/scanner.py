@@ -68,23 +68,25 @@ if rslt == 0: #Success
                             contrast_score = 0
                         
                         site_score = dark_mode_score + contrast_score
-                        site_cats = '\n'.join(element.get_text() for element in cats)
+                        site_cats = ','.join(element.get_text() for element in cats)
                         
-                        yaml_string = core_modules.OrderedDict([
-                            ('category', site_cats),
-                            ('url', domain),
-                            ('dark_mode', 'Auto'),
-                            ('contrast_accessibility', contrast_score),
-                            ('accessibility_rating', f'{site_score}/3'),
-                            ('last_updated', today)
-                        ])
+                        yaml_string = f'''
+---
+category: {site_cats}
+url: {domain}
+dark_mode: "Auto"
+contrast_accessibility: {contrast}
+accessibility_rating: {site_score}/3
+last_updated: {today}
+'''
                         
                         # Specify the output file path
                         output_file = f'websites/{domain}.yaml'
 
                         # Write the dictionary to the YAML file
                         with open(output_file, 'w') as yaml_file:
-                            core_modules.yaml.dump(yaml_string, yaml_file, default_flow_style=False, allow_unicode=True)
+                            yaml_file.write(yaml_string)
+                            yaml_file.close()
 
                         print(f"Dictionary saved as '{output_file}'.")
         
