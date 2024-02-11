@@ -2,8 +2,10 @@ import core_modules
 import core_functions
 
 #Initialise url and xpath query for source code search
-pwww_url = 'https://publicwww.com/websites/%22color-scheme%3A+dark%22/'
+pwww_url = 'https://publicwww.com/websites/%22prefers-color-scheme%3A+dark%22/'
 pwww_xpath = '//a[contains(@href,"?export=urls")]'
+
+today = core_modules.date.today().isoformat()
 
 # Get list of URLs matching source code query
 print("Getting sites that have dark mode in source code from publicwww.com")
@@ -21,8 +23,8 @@ if rslt == 0: #Success
     
     # Open File
     print("Processing domains...")
-    num_domains = sum(1 for _ in open('/tmp/downloads/color-schemedark.txt', 'r'))
-    with open('/tmp/downloads/color-schemedark.txt', 'r') as file:
+    num_domains = sum(1 for _ in open('/tmp/downloads/prefers-color-schemedark.txt', 'r'))
+    with open('/tmp/downloads/prefers-color-schemedark.txt', 'r') as file:
         lines = file.readlines()  # Read all lines into a list
         num_domains = len(lines)  # Get the total number of domains
         for line in lines:
@@ -40,9 +42,10 @@ if rslt == 0: #Success
             else:
                 soup = core_modules.BeautifulSoup(rslt, 'html.parser')
                 cats = soup.find_all("span", class_="clickable-category")
+
                 if len(cats) > 0:
                     for cat in cats:
-                        if cat in banned_sites_data:
+                        if cat.text in banned_sites_data.get('categories', []):
                             print("Category",cat," is in the banned sites data. Skipping.")
                             break
                     else:
@@ -50,7 +53,39 @@ if rslt == 0: #Success
                         print("Success! There are",len(cats), "categories for", domain)
                         contrast = core_functions.chrome_check_contrast(domain)
                         if contrast == 0:
-                            print("Domain", domain, "contrast check result: SCANFAIL")
+                            print("Domain", domain, "contrast check result: BLOCKED")
+                            contrast = "BLOCKED"
                         else:
                             print("Domain", domain, "contrast check result:",contrast)
+                
+                        # Source list was pulled from a publicwww crawl of sites that contain "prefers-color-scheme: dark"
+                        # Hence score of 2 for auto detection 
+                        dark_mode_score = 2
+                        
+                        if contrast == "PASS":
+                            contrast_score = 1
+                        else:
+                            contrast_score = 0
+                        
+                        site_score = dark_mode_score + contrast_score
+                        site_cats = '\n'.join(element.get_text() for element in cats)
+                        
+                        yaml_string = core_modules.OrderedDict([
+                            ('category', site_cats),
+                            ('url', domain),
+                            ('dark_mode', 'Auto'),
+                            ('contrast_accessibility', contrast_score),
+                            ('accessibility_rating', f'{site_score}/3'),
+                            ('last_updated', today)
+                        ])
+                        
+                        # Specify the output file path
+                        output_file = f'websites/{domain}.yaml'
+
+                        # Write the dictionary to the YAML file
+                        with open(output_file, 'w') as yaml_file:
+                            core_modules.yaml.dump(yaml_string, yaml_file, default_flow_style=False, allow_unicode=True)
+
+                        print(f"Dictionary saved as '{output_file}'.")
+        
                 i = i + 1
