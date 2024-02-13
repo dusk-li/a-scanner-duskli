@@ -7,6 +7,7 @@ import wget
 import time
 import sys
 import json
+import validators
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from selenium import webdriver

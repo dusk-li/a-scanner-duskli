@@ -1,33 +1,23 @@
 import core_modules
 import core_functions
 
-#Initialise url and xpath query for source code search
-pwww_url = 'https://publicwww.com/websites/%22prefers-color-scheme%3A+dark%22/'
-pwww_xpath = '//a[contains(@href,"?export=urls")]'
-
 today = core_modules.date.today().isoformat()
 
-# Get list of URLs matching source code query
-print("Getting sites that have dark mode in source code from publicwww.com")
-rslt = core_functions.chrome_download_linked_file(pwww_url,pwww_xpath)
+i = 1
 
-if rslt == 0: #Success
-    print("Success!")
-    #Loop through URLs in file and get Symantec site categor(ies)y
-    
-    i = 1
+# Read the banned_sites JSON file
+with open("json/banned_sites.json") as banned_sites:
+    banned_sites_data = core_modules.json.load(banned_sites)
 
-    # Read the banned_sites JSON file
-    with open("json/banned_sites.json") as banned_sites:
-        banned_sites_data = core_modules.json.load(banned_sites)
-    
-    # Open File
-    print("Processing domains...")
-    num_domains = sum(1 for _ in open('/tmp/downloads/prefers-color-schemedark.txt', 'r'))
-    with open('/tmp/downloads/prefers-color-schemedark.txt', 'r') as file:
-        lines = file.readlines()  # Read all lines into a list
-        num_domains = len(lines)  # Get the total number of domains
-        for line in lines:
+# Open File
+print("Processing domains...")
+num_domains = sum(1 for _ in open('input/input.txt', 'r'))
+with open('input/input.txt', 'r') as file:
+    lines = file.readlines()  # Read all lines into a list
+    num_domains = len(lines)  # Get the total number of domains
+    for line in lines:
+        urlvalidation = core_modules.validators.url(line.rstrip())
+        if urlvalidation:
             domain = core_modules.urlparse(line).netloc
             print(f"Processing domain {i} of {num_domains}:", domain)
             # Setup url for Symantec lookup inc domain to lookup
@@ -57,29 +47,42 @@ if rslt == 0: #Success
                             contrast = "BLOCKED"
                         else:
                             print("Domain", domain, "contrast check result:",contrast)
-                
-                        # Source list was pulled from a publicwww crawl of sites that contain "prefers-color-scheme: dark"
-                        # Hence score of 2 for auto detection 
-                        dark_mode_score = 2
-                        dark_mode = "Auto"
+                        scheme = core_modules.urlparse(line).scheme
+                        url = core_modules.urlparse(line).netloc
+                        response = core_modules.requests.get(f"{scheme}://{url}")
                         
+                        if response.text.find("@media (prefers-color-scheme: dark") \
+                            or response.text.find("@media (prefers-color-scheme:dark"):
+                            dark_mode_score = 1    
+                            dark_mode = "Manual"
+                        
+                        if response.text.find("window.matchMedia('(prefers-color-scheme: dark") \
+                            or response.text.find("window.matchMedia('(prefers-color-scheme:dark"):
+                            dark_mode_score = 2    
+                            dark_mode = "Auto"
+                        
+                        if not response.text.find("prefers-color-scheme: dark") \
+                            or not response.text.find("prefers-color-scheme:dark"):
+                            dark_mode_score = 0    
+                            dark_mode = "None"
+                                                                        
                         if contrast == "PASS":
                             contrast_score = 1
                         else:
                             contrast_score = 0
                         
                         site_score = dark_mode_score + contrast_score
-                        site_cats = ','.join(element.get_text() for element in cats)
+                        site_cats = ', '.join(element.get_text() for element in cats)
                         
-                        yaml_string = f'''
----
-category: {site_cats}
-url: {domain}
-dark_mode: {dark_mode}
-contrast_accessibility: {contrast}
-accessibility_rating: {site_score}/3
-last_updated: {today}
-'''
+                        yaml_string = (
+                        f"---\n"
+                        f"category: {site_cats}\n"
+                        f"url: {scheme}://{domain}\n"
+                        f"dark_mode: {dark_mode}\n"
+                        f"contrast_accessibility: {contrast}\n"
+                        f"accessibility_rating: {site_score}/3\n"
+                        f"last_updated: {today}\n"
+                        )
                         
                         # Specify the output file path
                         output_file = f'websites/{domain}.yaml'
@@ -92,3 +95,6 @@ last_updated: {today}
                         print(f"Dictionary saved as '{output_file}'.")
         
                 i = i + 1
+        else:
+            print("Skipping Invalid URL:", line)
+            break
