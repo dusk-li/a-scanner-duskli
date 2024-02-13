@@ -51,20 +51,20 @@ with open('input/input.txt', 'r') as file:
                         url = core_modules.urlparse(line).netloc
                         response = core_modules.requests.get(f"{scheme}://{url}")
                         
-                        if response.text.find("@media (prefers-color-scheme: dark") \
-                            or response.text.find("@media (prefers-color-scheme:dark"):
-                            dark_mode_score = 1    
+                        if response.text.find("@media (prefers-color-scheme: dark") >= 0 \
+                                or response.text.find("@media (prefers-color-scheme:dark") >= 0:
+                            dark_mode_score = 1
                             dark_mode = "Manual"
-                        
-                        if response.text.find("window.matchMedia('(prefers-color-scheme: dark") \
-                            or response.text.find("window.matchMedia('(prefers-color-scheme:dark"):
-                            dark_mode_score = 2    
+
+                        elif response.text.find("window.matchMedia('(prefers-color-scheme: dark") >= 0 \
+                                or response.text.find("window.matchMedia('(prefers-color-scheme:dark") >= 0:
+                            dark_mode_score = 2
                             dark_mode = "Auto"
-                        
-                        if not response.text.find("prefers-color-scheme: dark") \
-                            or not response.text.find("prefers-color-scheme:dark"):
-                            dark_mode_score = 0    
+
+                        else: 
+                            dark_mode_score = 0
                             dark_mode = "None"
+
                                                                         
                         if contrast == "PASS":
                             contrast_score = 1
