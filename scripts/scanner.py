@@ -1,6 +1,8 @@
 import core_modules
 import core_functions
 
+core_modules.http.client._MAXHEADERS = 1000
+
 today = core_modules.date.today().isoformat()
 
 i = 1
