@@ -53,7 +53,7 @@ jobs:
         env:
           SCAN_URL: ${{ steps.extract.outputs.url }}
         run: |
-          DOMAIN=$(URL="${{ steps.extract.outputs.url }}" python3 -c "from urllib.parse import urlparse; import os; print(urlparse(os.environ['URL']).netloc)")
+          DOMAIN=$(python3 -c "from urllib.parse import urlparse; import os; print(urlparse(os.environ['SCAN_URL']).hostname)")
           YAML_URL="https://raw.githubusercontent.com/dusk-li/dusk-li-data/main/websites/${DOMAIN}.yaml"
           HTTP_STATUS=$(curl -s -o /tmp/existing.yaml -w "%{http_code}" "$YAML_URL")
           if [ "$HTTP_STATUS" = "200" ]; then
