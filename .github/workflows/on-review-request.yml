@@ -34,7 +34,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '❌ Could not find a valid URL in this request. Please re-open with a URL starting with `https://`.'
+              body: '❌ Could not find a valid URL in this request. Please re-open with a URL starting with `http://` or `https://`.'
             });
             await github.rest.issues.update({
               issue_number: context.issue.number,
@@ -46,20 +46,20 @@ jobs:
 
       - name: Stop if no URL
         if: steps.extract.outputs.url == ''
-        run: exit 1
+        run: exit 0
 
       - name: Check 7-day cooldown
         id: cooldown
         env:
           SCAN_URL: ${{ steps.extract.outputs.url }}
         run: |
-          DOMAIN=$(python3 -c "from urllib.parse import urlparse; import os; print(urlparse(os.environ['SCAN_URL']).netloc)")
+          DOMAIN=$(URL="${{ steps.extract.outputs.url }}" python3 -c "from urllib.parse import urlparse; import os; print(urlparse(os.environ['URL']).netloc)")
           YAML_URL="https://raw.githubusercontent.com/dusk-li/dusk-li-data/main/websites/${DOMAIN}.yaml"
           HTTP_STATUS=$(curl -s -o /tmp/existing.yaml -w "%{http_code}" "$YAML_URL")
           if [ "$HTTP_STATUS" = "200" ]; then
             LAST_UPDATED=$(grep '^last_updated:' /tmp/existing.yaml | awk '{print $2}')
             if [ -n "$LAST_UPDATED" ]; then
-              AGE=$(python3 -c "from datetime import date; d=date.fromisoformat('$LAST_UPDATED'); print((date.today()-d).days)")
+              AGE=$(LAST_UPDATED="$LAST_UPDATED" python3 -c "from datetime import date; import os; d=date.fromisoformat(os.environ['LAST_UPDATED']); print((date.today()-d).days)")
               if [ "$AGE" -lt 7 ]; then
                 echo "too_recent=true" >> $GITHUB_OUTPUT
                 echo "last_updated=$LAST_UPDATED" >> $GITHUB_OUTPUT
@@ -102,9 +102,10 @@ jobs:
 
       - name: Stop if too recent
         if: steps.cooldown.outputs.too_recent == 'true'
-        run: exit 1
+        run: exit 0
 
       - name: Post scanning comment
+        id: post_scan_comment
         uses: actions/github-script@v7
         env:
           SCAN_URL: ${{ steps.extract.outputs.url }}
@@ -202,4 +203,23 @@ jobs:
               repo: context.repo.repo,
               state: 'closed',
               state_reason: 'completed'
+            });
+
+      - name: Handle scanner failure
+        if: failure() && steps.post_scan_comment.result == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `❗ The automated accessibility scan for **${{ steps.extract.outputs.url }}** failed. Please check that the URL is correct and reachable, then try opening a new review request. If this keeps happening, a maintainer may need to inspect the workflow logs.`
+            });
+            await github.rest.issues.update({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              state_reason: 'not_planned'
             });
