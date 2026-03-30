@@ -20,7 +20,7 @@ with open("json/banned_sites.json") as banned_sites:
 DATA_REPO_PATH = core_modules.os.environ.get("DATA_REPO_PATH", "../dusk-li-data")
 
 # Maximum number of URLs to process in a single run
-MAX_URLS_PER_RUN = 200
+MAX_URLS_PER_RUN = 100
 
 # Skip domains already scanned within this many days
 RESCAN_AFTER_DAYS = 90
@@ -106,16 +106,16 @@ def collect_all_urls():
 
 # ── Per-domain scan logic ─────────────────────────────────────────────────────
 
-def process_domain(url):
+def process_domain(url, sitecategory_token):
     """Scan a single URL and write a YAML file if it passes all checks."""
     domain = core_modules.urlparse(url).netloc
     scheme = core_modules.urlparse(url).scheme
 
     log(f"[{domain}] Starting scan...")
 
-    log(f"[{domain}] Fetching categorify.org categorisation...")
-    site_cats = core_functions.get_categorify_category(domain)
-    log(f"[{domain}] categorify.org category: {site_cats}")
+    log(f"[{domain}] Fetching sitecategory.com categorisation...")
+    site_cats = core_functions.get_sitecategory_category(domain, sitecategory_token)
+    log(f"[{domain}] sitecategory.com category: {site_cats}")
 
     if any(cat in banned_sites_data.get("categories", []) for cat in site_cats.split(", ")):
         log(f"[{domain}] Category '{site_cats}' is banned – skipping")
@@ -176,11 +176,14 @@ all_urls = collect_all_urls()
 num_domains = len(all_urls)
 log(f"Processing {num_domains} unique domains...")
 
+log("Fetching sitecategory.com session token...")
+sitecategory_token = core_functions.get_sitecategory_token()
+
 # Process domains in parallel; limit concurrency to avoid overwhelming resources
 MAX_WORKERS = 5
 
 with core_modules.concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-    futures = {executor.submit(process_domain, url): url for url in all_urls}
+    futures = {executor.submit(process_domain, url, sitecategory_token): url for url in all_urls}
     for i, future in enumerate(core_modules.concurrent.futures.as_completed(futures), start=1):
         url = futures[future]
         domain = core_modules.urlparse(url).netloc
