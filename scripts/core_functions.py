@@ -1,58 +1,41 @@
 import core_modules
 
-FORTIGUARD_LOAD_TIMEOUT_MS = 20000
+CATEGORIFY_API_URL = "https://categorify.org/api"
 
 
 def _log(msg):
     print(msg, flush=True)
 
 
-def get_fortiguard_category(browser, domain):
-    """Get the URL category for a domain using Fortinet FortiGuard Web Filter.
+def get_categorify_category(domain):
+    """Get the URL category for a domain using the categorify.org API.
 
-    Returns the category string (e.g. 'Information Technology') or 'Unknown'
-    if the category cannot be determined.  Never raises; all errors are
+    Returns a comma-separated category string (e.g. 'Search Engine, Clean Browsing')
+    or 'Unknown' if the category cannot be determined.  Never raises; all errors are
     handled internally so callers can always expect a string back.
     """
-    fortiguard_url = f"https://www.fortiguard.com/webfilter?q={domain}"
-    page = browser.new_page()
     try:
-        _log(f"  [get_fortiguard_category] Looking up category for {domain}")
-        page.goto(fortiguard_url, timeout=30000)
-
-        # Wait for the category element to appear after JavaScript renders the result
-        try:
-            page.wait_for_selector("#categoryName", timeout=FORTIGUARD_LOAD_TIMEOUT_MS)
-            _log(f"  [get_fortiguard_category] Category element found for {domain}")
-        except core_modules.PlaywrightTimeoutError:
-            _log(f"  [get_fortiguard_category] Category element not found within timeout for {domain} – proceeding with page content")
-
-        page_content = page.inner_html("body")
-        soup = core_modules.BeautifulSoup(page_content, "html.parser")
-
-        # FortiGuard renders the primary category in #categoryName after JS loads.
-        # Fall back to additional selectors used by older/alternate page layouts.
-        candidate_elements = [
-            soup.find(id="categoryName"),
-            soup.find("h4", {"class": "card-title"}),
-            soup.find("span", {"class": "info-type-text"}),
-            soup.find("div", {"class": "info-val"}),
-        ]
-        for el in candidate_elements:
-            if el:
-                text = el.get_text(strip=True)
-                if text:
-                    _log(f"  [get_fortiguard_category] Category for {domain}: {text}")
-                    return text
-
-        _log(f"  [get_fortiguard_category] No category element found for {domain} – using 'Unknown'")
+        _log(f"  [get_categorify_category] Looking up category for {domain}")
+        response = core_modules.requests.get(
+            CATEGORIFY_API_URL,
+            params={"website": domain},
+            timeout=15,
+        )
+        if response.status_code == 400:
+            _log(f"  [get_categorify_category] Invalid domain or unprocessable: {domain} – using 'Unknown'")
+            return "Unknown"
+        response.raise_for_status()
+        data = response.json()
+        categories = data.get("category", [])
+        if categories:
+            result = ", ".join(categories)
+            _log(f"  [get_categorify_category] Category for {domain}: {result}")
+            return result
+        _log(f"  [get_categorify_category] No category returned for {domain} – using 'Unknown'")
         return "Unknown"
-
     except Exception as e:
-        _log(f"  [get_fortiguard_category] Error fetching category for {domain}: {e}")
+        _log(f"  [get_categorify_category] Error fetching category for {domain}: {e}")
         return "Unknown"
-    finally:
-        page.close()
 
 
 def check_contrast(browser, t_url):
