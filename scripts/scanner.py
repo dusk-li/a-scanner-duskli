@@ -1,9 +1,16 @@
 import core_modules
 import core_functions
+import glob as _glob
 
 core_modules.http.client._MAXHEADERS = 1000
 
+# Flush stdout immediately so CI logs appear in real-time
+def log(msg):
+    print(msg, flush=True)
+
 today = core_modules.date.today().isoformat()
+
+log(f"Scanner started on {today}")
 
 # Read the banned_sites JSON file
 with open("json/banned_sites.json") as banned_sites:
@@ -29,8 +36,9 @@ def load_input_file(path="input/input.txt"):
                 line = line.rstrip()
                 if line:
                     urls.append(line)
+        log(f"Loaded {len(urls)} URLs from {path}")
     except FileNotFoundError:
-        print(f"Input file not found: {path}")
+        log(f"Input file not found: {path}")
     return urls
 
 
@@ -48,7 +56,7 @@ def is_recently_scanned(domain, days=RESCAN_AFTER_DAYS):
                     age = (core_modules.datetime.date.today() - last_updated).days
                     return age < days
     except (ValueError, OSError) as e:
-        print(f"Warning: could not read last_updated for {domain}: {e}")
+        log(f"Warning: could not read last_updated for {domain}: {e}")
     return False
 
 
@@ -65,13 +73,19 @@ def collect_all_urls():
     sources += core_functions.fetch_urls_from_tranco(limit=500)
     sources += core_functions.fetch_urls_from_majestic(limit=500)
 
+    log(f"Total raw URLs from all sources: {len(sources)}")
+
     skipped = 0
+    invalid = 0
+    duplicates = 0
     for url in sources:
         url = url.rstrip()
         if not core_modules.validators.url(url):
+            invalid += 1
             continue
         domain = core_modules.urlparse(url).netloc
         if not domain or domain in seen_domains:
+            duplicates += 1
             continue
         seen_domains.add(domain)
         if is_recently_scanned(domain):
@@ -79,11 +93,13 @@ def collect_all_urls():
             continue
         all_urls.append(url)
 
+    log(f"URL filtering: {invalid} invalid, {duplicates} duplicates, {skipped} recently scanned, {len(all_urls)} remaining")
+
     if skipped:
-        print(f"Skipped {skipped} domain(s) scanned within the last {RESCAN_AFTER_DAYS} days.")
+        log(f"Skipped {skipped} domain(s) scanned within the last {RESCAN_AFTER_DAYS} days.")
 
     if len(all_urls) > MAX_URLS_PER_RUN:
-        print(f"Capping URL list from {len(all_urls)} to {MAX_URLS_PER_RUN}.")
+        log(f"Capping URL list from {len(all_urls)} to {MAX_URLS_PER_RUN}.")
         all_urls = all_urls[:MAX_URLS_PER_RUN]
 
     return all_urls
@@ -95,43 +111,51 @@ def process_domain(url):
     domain = core_modules.urlparse(url).netloc
     scheme = core_modules.urlparse(url).scheme
 
+    log(f"[{domain}] Starting scan...")
+
     with core_modules.sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
             symantec_url = "https://sitereview.symantec.com/#/lookup-result/" + domain
+            log(f"[{domain}] Fetching Symantec categorisation from {symantec_url}")
             rslt = core_functions.get_page_content(browser, symantec_url)
 
             if rslt == -1:
-                print(f"Failure getting page content from domain: {domain} – skipping")
+                log(f"[{domain}] Failure getting page content from Symantec – skipping")
                 return
 
             soup = core_modules.BeautifulSoup(rslt, "html.parser")
             cats = soup.find_all("span", class_="clickable-category")
 
             if len(cats) == 0:
-                return
+                log(f"[{domain}] No Symantec categories found (page may not have loaded or domain is uncategorised) – proceeding with 'Unknown' category")
+                site_cats = "Unknown"
+            else:
+                log(f"[{domain}] Symantec categories: {[c.text for c in cats]}")
+                for cat in cats:
+                    if cat.text in banned_sites_data.get("categories", []):
+                        log(f"[{domain}] Category '{cat.text}' is banned – skipping")
+                        return
+                site_cats = ", ".join(element.get_text() for element in cats)
 
-            for cat in cats:
-                if cat.text in banned_sites_data.get("categories", []):
-                    print(f"Category '{cat.text}' is banned. Skipping {domain}.")
-                    return
-
+            log(f"[{domain}] Running contrast check...")
             contrast = core_functions.check_contrast(browser, domain)
         finally:
             browser.close()
 
     if contrast == 0:
-        print(f"Domain {domain} contrast check result: BLOCKED")
+        log(f"[{domain}] Contrast check result: BLOCKED (no result from checker)")
         contrast = "BLOCKED"
     else:
-        print(f"Domain {domain} contrast check result: {contrast}")
+        log(f"[{domain}] Contrast check result: {contrast}")
 
     try:
         response = core_modules.requests.get(f"{scheme}://{domain}", timeout=15)
         response.raise_for_status()
         body = response.text
+        log(f"[{domain}] HTTP fetch succeeded ({len(body)} bytes)")
     except Exception as e:
-        print(f"HTTP request failed for {domain}: {e}")
+        log(f"[{domain}] HTTP request failed: {e}")
         body = ""
 
     if "@media (prefers-color-scheme: dark" in body \
@@ -148,7 +172,6 @@ def process_domain(url):
 
     contrast_score = 1 if contrast == "PASS" else 0
     site_score = dark_mode_score + contrast_score
-    site_cats = ", ".join(element.get_text() for element in cats)
 
     yaml_string = (
         f"---\n"
@@ -164,13 +187,13 @@ def process_domain(url):
     with open(output_file, "w") as yaml_file:
         yaml_file.write(yaml_string)
 
-    print(f"Saved '{output_file}' ({len(cats)} categories, score {site_score}/3).")
+    log(f"[{domain}] Saved '{output_file}' (category: {site_cats}, dark_mode: {dark_mode}, score: {site_score}/3)")
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 all_urls = collect_all_urls()
 num_domains = len(all_urls)
-print(f"Processing {num_domains} unique domains...")
+log(f"Processing {num_domains} unique domains...")
 
 # Process domains in parallel; limit concurrency to avoid overwhelming resources
 MAX_WORKERS = 5
@@ -183,6 +206,10 @@ with core_modules.concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS)
         try:
             future.result()
         except Exception as exc:
-            print(f"[{i}/{num_domains}] {domain} generated an exception: {exc}")
+            log(f"[{i}/{num_domains}] {domain} generated an exception: {exc}")
         else:
-            print(f"[{i}/{num_domains}] Completed: {domain}")
+            log(f"[{i}/{num_domains}] Completed: {domain}")
+
+# Report how many YAML files were produced
+yaml_files = _glob.glob("websites/*.yaml")
+log(f"Scan complete. {len(yaml_files)} YAML file(s) written to websites/")
