@@ -32,7 +32,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '❌ Could not find a valid URL in this request. Please re-open with a URL starting with `https://`.'
+              body: '❌ Could not find a valid URL in this request. Please re-open with a URL starting with `http://` or `https://`.'
             });
             await github.rest.issues.update({
               issue_number: context.issue.number,
