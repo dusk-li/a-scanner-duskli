@@ -38,41 +38,43 @@ def get_categorify_category(domain):
         return "Unknown"
 
 
-def check_contrast(browser, t_url):
-    """Check colour contrast for the given domain using an existing Playwright browser."""
-    page = browser.new_page()
+def check_contrast(url):
+    """Check colour contrast and accessibility for the given URL using pa11y.
+
+    Returns 'PASS' if no WCAG2AA errors are found, 'FAIL' if errors exist,
+    or -1 on a technical failure (pa11y crash / timeout).
+    """
     try:
-        _log(f"  [check_contrast] Checking contrast for {t_url}")
-        page.goto("https://color.a11y.com/Contrast/", timeout=30000)
-        page.fill('[name="urltotest"]', t_url)
-        page.click('[name="submitbutton"]')
+        _log(f"  [check_contrast] Running pa11y for {url}")
+        result = core_modules.subprocess.run(
+            [
+                "pa11y",
+                "--reporter", "json",
+                "--standard", "WCAG2AA",
+                "--chromium-flag", "--no-sandbox",
+                "--chromium-flag", "--disable-setuid-sandbox",
+                url,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        # pa11y exit codes: 0 = clean, 1 = issues found, 2 = technical error
+        if result.returncode == 2:
+            _log(f"  [check_contrast] pa11y technical error for {url}: {result.stderr.strip()}")
+            return -1
 
-        # Wait for results to appear
-        try:
-            page.wait_for_selector(".congratsbox, .nocongratsbox", timeout=20000)
-            _log(f"  [check_contrast] Result selector found for {t_url}")
-        except core_modules.PlaywrightTimeoutError:
-            _log(f"  [check_contrast] Result selector NOT found within 20s for {t_url} – proceeding anyway")
+        issues = core_modules.json.loads(result.stdout) if result.stdout.strip() else []
+        errors = [i for i in issues if i.get("type") == "error"]
+        _log(f"  [check_contrast] {url}: {len(errors)} WCAG2AA error(s) ({len(issues)} total issue(s))")
+        return "FAIL" if errors else "PASS"
 
-        page_content = page.inner_html("body")
-        soup = core_modules.BeautifulSoup(page_content, "html.parser")
-        failed = soup.find_all("div", class_="nocongratsbox")
-        passed = soup.find_all("div", class_="congratsbox")
-
-        _log(f"  [check_contrast] {t_url}: passed={len(passed)}, failed={len(failed)}")
-
-        if len(failed) > 0:
-            return "FAIL"
-        if len(passed) > 0:
-            return "PASS"
-
-    except Exception as e:
-        _log(f"  [check_contrast] Error checking contrast for {t_url}: {e}")
+    except core_modules.subprocess.TimeoutExpired:
+        _log(f"  [check_contrast] pa11y timed out for {url}")
         return -1
-    finally:
-        page.close()
-
-    return 0
+    except Exception as e:
+        _log(f"  [check_contrast] Error checking accessibility for {url}: {e}")
+        return -1
 
 
 def fetch_urls_from_tranco(limit=500):

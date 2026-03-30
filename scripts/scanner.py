@@ -121,13 +121,8 @@ def process_domain(url):
         log(f"[{domain}] Category '{site_cats}' is banned – skipping")
         return
 
-    with core_modules.sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        try:
-            log(f"[{domain}] Running contrast check...")
-            contrast = core_functions.check_contrast(browser, domain)
-        finally:
-            browser.close()
+    log(f"[{domain}] Running contrast check...")
+    contrast = core_functions.check_contrast(url)
 
     if contrast == 0:
         log(f"[{domain}] Contrast check result: BLOCKED (no result from checker)")
