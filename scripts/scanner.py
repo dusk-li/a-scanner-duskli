@@ -78,7 +78,7 @@ def collect_all_urls():
         if not core_modules.validators.url(url):
             invalid += 1
             continue
-        domain = core_modules.urlparse(url).netloc
+        domain = core_modules.urlparse(url).hostname
         if not domain or domain in seen_domains:
             duplicates += 1
             continue
@@ -99,8 +99,9 @@ def collect_all_urls():
 
 def process_domain(url):
     """Scan a single URL and write a YAML file if it passes all checks."""
-    domain = core_modules.urlparse(url).netloc
-    scheme = core_modules.urlparse(url).scheme
+    parsed = core_modules.urlparse(url)
+    domain = parsed.hostname  # hostname only (no port) — matches YAML filenames
+    scheme = parsed.scheme
 
     log(f"[{domain}] Starting scan...")
 
