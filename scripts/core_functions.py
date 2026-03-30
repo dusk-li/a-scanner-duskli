@@ -17,12 +17,9 @@ def chrome_get_page_content(c_url):
         retries = 3
         while retries > 0:
             driver.get(c_url)
-            core_modules.time.sleep(5)
-            driver.refresh()
-
-            # Wait for the spinner to disappear (timeout after 10 seconds)
+            # Wait for page load and spinner to disappear, up to 15 seconds
             try:
-                core_modules.WebDriverWait(driver, 10).until(
+                core_modules.WebDriverWait(driver, 15).until(
                     core_modules.EC.invisibility_of_element_located((core_modules.By.CLASS_NAME, "loading-spinner"))
                 )
             except core_modules.TimeoutException:
@@ -68,7 +65,14 @@ def chrome_check_contrast(t_url):
 
         check_button.click()
 
-        core_modules.time.sleep(5)
+        # Wait for results to appear instead of a fixed sleep
+        try:
+            core_modules.WebDriverWait(driver, 15).until(
+                lambda d: len(d.find_elements(core_modules.By.CLASS_NAME, "congratsbox")) > 0 or
+                          len(d.find_elements(core_modules.By.CLASS_NAME, "nocongratsbox")) > 0
+            )
+        except core_modules.TimeoutException:
+            pass
 
         page_content = driver.execute_script("return document.body.innerHTML")
         soup = core_modules.BeautifulSoup(page_content, 'html.parser')
@@ -88,3 +92,51 @@ def chrome_check_contrast(t_url):
         return -1
     
     return 0
+
+
+def fetch_urls_from_tranco(limit=500):
+    """Fetch the top `limit` URLs from the Tranco Top-1M list."""
+    tranco_url = "https://tranco-list.eu/top-1m.csv.zip"
+    urls = []
+    try:
+        print(f"Fetching Tranco Top-1M list (top {limit} entries)...")
+        response = core_modules.requests.get(tranco_url, timeout=60)
+        response.raise_for_status()
+        with core_modules.zipfile.ZipFile(core_modules.io.BytesIO(response.content)) as z:
+            csv_filename = z.namelist()[0]
+            with z.open(csv_filename) as csv_file:
+                reader = core_modules.csv.reader(core_modules.io.TextIOWrapper(csv_file, encoding="utf-8"))
+                for i, row in enumerate(reader):
+                    if i >= limit:
+                        break
+                    if len(row) >= 2:
+                        domain = row[1].strip()
+                        urls.append(f"https://{domain}/")
+        print(f"Fetched {len(urls)} URLs from Tranco.")
+    except Exception as e:
+        print(f"Failed to fetch Tranco list: {e}")
+    return urls
+
+
+def fetch_urls_from_majestic(limit=500):
+    """Fetch the top `limit` URLs from the Majestic Million list."""
+    majestic_url = "https://downloads.majestic.com/majestic_million.csv"
+    urls = []
+    try:
+        print(f"Fetching Majestic Million list (top {limit} entries)...")
+        response = core_modules.requests.get(majestic_url, timeout=60)
+        response.raise_for_status()
+        reader = core_modules.csv.DictReader(
+            core_modules.io.StringIO(response.text)
+        )
+        for i, row in enumerate(reader):
+            if i >= limit:
+                break
+            domain = row.get("Domain", "").strip()
+            if domain:
+                urls.append(f"https://{domain}/")
+        print(f"Fetched {len(urls)} URLs from Majestic Million.")
+    except Exception as e:
+        print(f"Failed to fetch Majestic Million list: {e}")
+    return urls
+
