@@ -94,6 +94,7 @@ jobs:
         run: exit 1
 
       - name: Post scanning comment
+        id: post_scan_comment
         uses: actions/github-script@v7
         with:
           script: |
@@ -184,4 +185,23 @@ jobs:
               repo: context.repo.repo,
               state: 'closed',
               state_reason: 'completed'
+            });
+
+      - name: Handle scanner failure
+        if: failure() && steps.post_scan_comment.result == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `❗ The automated accessibility scan for **${{ steps.extract.outputs.url }}** failed. Please check that the URL is correct and reachable, then try opening a new review request. If this keeps happening, a maintainer may need to inspect the workflow logs.`
+            });
+            await github.rest.issues.update({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              state_reason: 'not_planned'
             });
