@@ -163,7 +163,7 @@ jobs:
           script: |
             const fs = require('fs');
             const url = '${{ steps.extract.outputs.url }}';
-            const domain = new URL(url).hostname;
+            const domain = new URL(url).host;
             const yamlPath = `${process.env.GITHUB_WORKSPACE}/dusk-li-data/websites/${domain}.yaml`;
             let body;
             try {
