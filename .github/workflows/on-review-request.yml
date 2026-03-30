@@ -15,8 +15,10 @@ jobs:
     steps:
       - name: Extract URL from issue body
         id: extract
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
-          URL=$(echo "${{ github.event.issue.body }}" | grep -oP 'https?://[^\s<>"]+' | head -1)
+          URL=$(echo "$ISSUE_BODY" | grep -oP 'https?://[^\s<>"]+' | head -1)
           if [ -z "$URL" ]; then
             echo "url=" >> $GITHUB_OUTPUT
           else
@@ -48,6 +50,8 @@ jobs:
 
       - name: Check 7-day cooldown
         id: cooldown
+        env:
+          SCAN_URL: ${{ steps.extract.outputs.url }}
         run: |
           DOMAIN=$(URL="${{ steps.extract.outputs.url }}" python3 -c "from urllib.parse import urlparse; import os; print(urlparse(os.environ['URL']).netloc)")
           YAML_URL="https://raw.githubusercontent.com/dusk-li/dusk-li-data/main/websites/${DOMAIN}.yaml"
@@ -73,13 +77,20 @@ jobs:
       - name: Reject if scanned too recently
         if: steps.cooldown.outputs.too_recent == 'true'
         uses: actions/github-script@v7
+        env:
+          SCAN_URL: ${{ steps.extract.outputs.url }}
+          LAST_UPDATED: ${{ steps.cooldown.outputs.last_updated }}
+          AGE_DAYS: ${{ steps.cooldown.outputs.age }}
         with:
           script: |
+            const url = process.env.SCAN_URL;
+            const lastUpdated = process.env.LAST_UPDATED;
+            const age = process.env.AGE_DAYS;
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `⏳ **${{ steps.extract.outputs.url }}** was last scanned on ${{ steps.cooldown.outputs.last_updated }} (${{ steps.cooldown.outputs.age }} day(s) ago). Please wait at least 7 days between review requests for the same site.`
+              body: `⏳ **${url}** was last scanned on ${lastUpdated} (${age} day(s) ago). Please wait at least 7 days between review requests for the same site.`
             });
             await github.rest.issues.update({
               issue_number: context.issue.number,
@@ -96,13 +107,16 @@ jobs:
       - name: Post scanning comment
         id: post_scan_comment
         uses: actions/github-script@v7
+        env:
+          SCAN_URL: ${{ steps.extract.outputs.url }}
         with:
           script: |
+            const url = process.env.SCAN_URL;
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '🔍 Scanning **${{ steps.extract.outputs.url }}** — this usually takes 1–2 minutes. Results will be posted here when complete.'
+              body: `🔍 Scanning **${url}** — this usually takes 1–2 minutes. Results will be posted here when complete.`
             });
 
       - name: Checkout scanner repository
@@ -146,6 +160,8 @@ jobs:
           fi
 
       - name: Commit and push result
+        env:
+          SCAN_URL: ${{ steps.extract.outputs.url }}
         run: |
           cd dusk-li-data
           git config user.name "github-actions[bot]"
@@ -154,16 +170,18 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "chore: review request scan for ${{ steps.extract.outputs.url }}"
+            git commit -m "chore: review request scan for $SCAN_URL"
             git push
           fi
 
       - name: Post results comment
         uses: actions/github-script@v7
+        env:
+          SCAN_URL: ${{ steps.extract.outputs.url }}
         with:
           script: |
             const fs = require('fs');
-            const url = '${{ steps.extract.outputs.url }}';
+            const url = process.env.SCAN_URL;
             const domain = new URL(url).hostname;
             const yamlPath = `${process.env.GITHUB_WORKSPACE}/dusk-li-data/websites/${domain}.yaml`;
             let body;
