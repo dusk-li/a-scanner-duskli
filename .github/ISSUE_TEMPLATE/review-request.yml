@@ -1,7 +1,5 @@
 name: Request Site Review
 description: Request that a website be reviewed or re-reviewed for dark mode and colour contrast accessibility.
-labels:
-  - review-request
 body:
   - type: markdown
     attributes:
