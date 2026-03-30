@@ -15,9 +15,6 @@ log(f"Scanner started on {today}")
 # Path to the checked-out data repository (set by the workflow)
 DATA_REPO_PATH = core_modules.os.environ.get("DATA_REPO_PATH", "../dusk-li-data")
 
-# Maximum number of URLs to process in a single run
-MAX_URLS_PER_RUN = 100
-
 # Skip domains already scanned within this many days
 RESCAN_AFTER_DAYS = 90
 
@@ -57,15 +54,17 @@ def is_recently_scanned(domain, days=RESCAN_AFTER_DAYS):
 
 
 def collect_all_urls():
-    """Merge URLs from the input file and all remote sources, deduplicating.
+    """Merge URLs from all sources, deduplicating.
 
+    Sources: static input file, existing data-repo YAMLs (for rescan),
+    Tranco top-500, Majestic top-500.
     Domains already scanned within RESCAN_AFTER_DAYS are skipped.
-    The final list is capped at MAX_URLS_PER_RUN entries.
     """
     seen_domains = set()
     all_urls = []
 
     sources = load_input_file()
+    sources += core_functions.fetch_urls_from_data_repo(DATA_REPO_PATH)
     sources += core_functions.fetch_urls_from_tranco(limit=500)
     sources += core_functions.fetch_urls_from_majestic(limit=500)
 
@@ -93,10 +92,6 @@ def collect_all_urls():
 
     if skipped:
         log(f"Skipped {skipped} domain(s) scanned within the last {RESCAN_AFTER_DAYS} days.")
-
-    if len(all_urls) > MAX_URLS_PER_RUN:
-        log(f"Capping URL list from {len(all_urls)} to {MAX_URLS_PER_RUN}.")
-        all_urls = all_urls[:MAX_URLS_PER_RUN]
 
     return all_urls
 

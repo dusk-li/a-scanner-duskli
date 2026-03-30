@@ -44,6 +44,29 @@ def check_contrast(url):
         return -1
 
 
+def fetch_urls_from_data_repo(data_repo_path):
+    """Return URLs for all domains already in the data repo.
+
+    These are candidates for rescan — the is_recently_scanned filter in
+    collect_all_urls() will exclude any scanned within RESCAN_AFTER_DAYS.
+    """
+    urls = []
+    websites_dir = core_modules.os.path.join(data_repo_path, "websites")
+    if not core_modules.os.path.isdir(websites_dir):
+        _log(f"Data repo websites dir not found: {websites_dir}")
+        return urls
+    try:
+        for fname in core_modules.os.listdir(websites_dir):
+            if not fname.endswith(".yaml"):
+                continue
+            domain = fname[:-5]  # strip .yaml
+            urls.append(f"https://{domain}/")
+        _log(f"Found {len(urls)} URLs in data repo for rescan consideration.")
+    except Exception as e:
+        _log(f"Failed to read data repo: {e}")
+    return urls
+
+
 def fetch_urls_from_tranco(limit=500):
     """Fetch the top `limit` URLs from the Tranco Top-1M list."""
     tranco_url = "https://tranco-list.eu/top-1m.csv.zip"

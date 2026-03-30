@@ -1,0 +1,68 @@
+name: Rescan Stale Sites
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 03:00 UTC daily, offset from nightly scan
+  workflow_dispatch:
+
+jobs:
+  rescan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout scanner repository
+        uses: actions/checkout@v4
+
+      - name: Checkout dusk-li-data repository
+        uses: actions/checkout@v4
+        with:
+          repository: dusk-li/dusk-li-data
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          path: dusk-li-data
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r scripts/requirements.txt
+
+      - name: Install pa11y
+        run: npm install -g pa11y
+
+      - name: Create output directories
+        run: |
+          mkdir -p scripts/websites
+
+      - name: Run scanner (stale sites from data repo are auto-included)
+        run: |
+          cd scripts
+          python scanner.py
+        env:
+          DATA_REPO_PATH: ${{ github.workspace }}/dusk-li-data
+
+      - name: Copy results to dusk-li-data
+        run: |
+          if ls scripts/websites/*.yaml 1>/dev/null 2>&1; then
+            cp -v scripts/websites/*.yaml dusk-li-data/websites/
+          else
+            echo "No YAML files were generated"
+          fi
+
+      - name: Commit and push updated data
+        run: |
+          cd dusk-li-data
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add websites/
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: rescan stale sites $(date -u '+%Y-%m-%d')"
+            git push
+          fi
