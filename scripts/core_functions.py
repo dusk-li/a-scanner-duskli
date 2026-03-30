@@ -1,5 +1,7 @@
 import core_modules
 
+CATEGORY_LOAD_TIMEOUT_MS = 15000
+
 
 def get_page_content(browser, c_url):
     """Fetch rendered page HTML from the given URL using an existing Playwright browser."""
@@ -16,6 +18,12 @@ def get_page_content(browser, c_url):
                 print(f"Spinner still present after attempt {4 - retries}")
                 retries -= 1
                 continue
+
+            # Wait for category results to render before reading the page
+            try:
+                page.wait_for_selector("span.clickable-category", timeout=CATEGORY_LOAD_TIMEOUT_MS)
+            except core_modules.PlaywrightTimeoutError:
+                pass  # No categories rendered; proceed so caller can handle empty result
 
             page_content = page.inner_html("body")
             break
