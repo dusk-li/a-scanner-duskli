@@ -116,27 +116,13 @@ def process_domain(url):
     with core_modules.sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
-            symantec_url = "https://sitereview.symantec.com/#/lookup-result/" + domain
-            log(f"[{domain}] Fetching Symantec categorisation from {symantec_url}")
-            rslt = core_functions.get_page_content(browser, symantec_url)
+            log(f"[{domain}] Fetching FortiGuard categorisation...")
+            site_cats = core_functions.get_fortiguard_category(browser, domain)
+            log(f"[{domain}] FortiGuard category: {site_cats}")
 
-            if rslt == -1:
-                log(f"[{domain}] Failure getting page content from Symantec – skipping")
+            if any(cat in banned_sites_data.get("categories", []) for cat in site_cats.split(", ")):
+                log(f"[{domain}] Category '{site_cats}' is banned – skipping")
                 return
-
-            soup = core_modules.BeautifulSoup(rslt, "html.parser")
-            cats = soup.find_all("span", class_="clickable-category")
-
-            if len(cats) == 0:
-                log(f"[{domain}] No Symantec categories found (page may not have loaded or domain is uncategorised) – proceeding with 'Unknown' category")
-                site_cats = "Unknown"
-            else:
-                log(f"[{domain}] Symantec categories: {[c.text for c in cats]}")
-                for cat in cats:
-                    if cat.text in banned_sites_data.get("categories", []):
-                        log(f"[{domain}] Category '{cat.text}' is banned – skipping")
-                        return
-                site_cats = ", ".join(element.get_text() for element in cats)
 
             log(f"[{domain}] Running contrast check...")
             contrast = core_functions.check_contrast(browser, domain)

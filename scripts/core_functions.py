@@ -1,48 +1,58 @@
 import core_modules
 
-CATEGORY_LOAD_TIMEOUT_MS = 15000
+FORTIGUARD_LOAD_TIMEOUT_MS = 20000
 
 
 def _log(msg):
     print(msg, flush=True)
 
 
-def get_page_content(browser, c_url):
-    """Fetch rendered page HTML from the given URL using an existing Playwright browser."""
+def get_fortiguard_category(browser, domain):
+    """Get the URL category for a domain using Fortinet FortiGuard Web Filter.
+
+    Returns the category string (e.g. 'Information Technology') or 'Unknown'
+    if the category cannot be determined.  Never raises; all errors are
+    handled internally so callers can always expect a string back.
+    """
+    fortiguard_url = f"https://www.fortiguard.com/webfilter?q={domain}"
     page = browser.new_page()
-    page_content = ""
     try:
-        retries = 3
-        while retries > 0:
-            _log(f"  [get_page_content] goto {c_url} (attempts left: {retries})")
-            page.goto(c_url, timeout=30000)
-            # Wait for the loading spinner to disappear
-            try:
-                page.wait_for_selector(".loading-spinner", state="hidden", timeout=20000)
-                _log(f"  [get_page_content] spinner gone for {c_url}")
-            except core_modules.PlaywrightTimeoutError:
-                _log(f"  [get_page_content] spinner still present after attempt {4 - retries}, retrying...")
-                retries -= 1
-                continue
+        _log(f"  [get_fortiguard_category] Looking up category for {domain}")
+        page.goto(fortiguard_url, timeout=30000)
 
-            # Wait for category results to render before reading the page
-            try:
-                page.wait_for_selector("span.clickable-category", timeout=CATEGORY_LOAD_TIMEOUT_MS)
-                _log(f"  [get_page_content] clickable-category selector found for {c_url}")
-            except core_modules.PlaywrightTimeoutError:
-                _log(f"  [get_page_content] clickable-category selector NOT found within {CATEGORY_LOAD_TIMEOUT_MS}ms for {c_url} – proceeding anyway")
+        # Wait for the category element to appear after JavaScript renders the result
+        try:
+            page.wait_for_selector("#categoryName", timeout=FORTIGUARD_LOAD_TIMEOUT_MS)
+            _log(f"  [get_fortiguard_category] Category element found for {domain}")
+        except core_modules.PlaywrightTimeoutError:
+            _log(f"  [get_fortiguard_category] Category element not found within timeout for {domain} – proceeding with page content")
 
-            page_content = page.inner_html("body")
-            _log(f"  [get_page_content] page body length: {len(page_content)} chars")
-            break
+        page_content = page.inner_html("body")
+        soup = core_modules.BeautifulSoup(page_content, "html.parser")
+
+        # FortiGuard renders the primary category in #categoryName after JS loads.
+        # Fall back to additional selectors used by older/alternate page layouts.
+        candidate_elements = [
+            soup.find(id="categoryName"),
+            soup.find("h4", {"class": "card-title"}),
+            soup.find("span", {"class": "info-type-text"}),
+            soup.find("div", {"class": "info-val"}),
+        ]
+        for el in candidate_elements:
+            if el:
+                text = el.get_text(strip=True)
+                if text:
+                    _log(f"  [get_fortiguard_category] Category for {domain}: {text}")
+                    return text
+
+        _log(f"  [get_fortiguard_category] No category element found for {domain} – using 'Unknown'")
+        return "Unknown"
 
     except Exception as e:
-        _log(f"  [get_page_content] Error fetching page content for {c_url}: {e}")
-        return -1
+        _log(f"  [get_fortiguard_category] Error fetching category for {domain}: {e}")
+        return "Unknown"
     finally:
         page.close()
-
-    return page_content
 
 
 def check_contrast(browser, t_url):
