@@ -159,10 +159,12 @@ jobs:
 
       - name: Post results comment
         uses: actions/github-script@v7
+        env:
+          FORCE_URL: ${{ steps.extract.outputs.url }}
         with:
           script: |
             const fs = require('fs');
-            const url = '${{ steps.extract.outputs.url }}';
+            const url = process.env.FORCE_URL;
             const domain = new URL(url).hostname;
             const yamlPath = `${process.env.GITHUB_WORKSPACE}/dusk-li-data/websites/${domain}.yaml`;
             let body;
