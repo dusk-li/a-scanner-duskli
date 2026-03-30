@@ -9,6 +9,15 @@ today = core_modules.date.today().isoformat()
 with open("json/banned_sites.json") as banned_sites:
     banned_sites_data = core_modules.json.load(banned_sites)
 
+# Path to the checked-out data repository (set by the workflow)
+DATA_REPO_PATH = core_modules.os.environ.get("DATA_REPO_PATH", "../dusk-li-data")
+
+# Maximum number of URLs to process in a single run
+MAX_URLS_PER_RUN = 200
+
+# Skip domains already scanned within this many days
+RESCAN_AFTER_DAYS = 90
+
 # ── Collect URLs from all sources ────────────────────────────────────────────
 
 def load_input_file(path="input/input.txt"):
@@ -24,8 +33,31 @@ def load_input_file(path="input/input.txt"):
         print(f"Input file not found: {path}")
     return urls
 
+
+def is_recently_scanned(domain, days=RESCAN_AFTER_DAYS):
+    """Return True if the domain was scanned less than `days` days ago."""
+    yaml_path = core_modules.os.path.join(DATA_REPO_PATH, "websites", f"{domain}.yaml")
+    if not core_modules.os.path.exists(yaml_path):
+        return False
+    try:
+        with open(yaml_path, "r") as f:
+            for line in f:
+                if line.startswith("last_updated:"):
+                    date_str = line.split(":", 1)[1].strip()
+                    last_updated = core_modules.datetime.date.fromisoformat(date_str)
+                    age = (core_modules.datetime.date.today() - last_updated).days
+                    return age < days
+    except (ValueError, OSError) as e:
+        print(f"Warning: could not read last_updated for {domain}: {e}")
+    return False
+
+
 def collect_all_urls():
-    """Merge URLs from the input file and all remote sources, deduplicating."""
+    """Merge URLs from the input file and all remote sources, deduplicating.
+
+    Domains already scanned within RESCAN_AFTER_DAYS are skipped.
+    The final list is capped at MAX_URLS_PER_RUN entries.
+    """
     seen_domains = set()
     all_urls = []
 
@@ -33,14 +65,26 @@ def collect_all_urls():
     sources += core_functions.fetch_urls_from_tranco(limit=500)
     sources += core_functions.fetch_urls_from_majestic(limit=500)
 
+    skipped = 0
     for url in sources:
         url = url.rstrip()
         if not core_modules.validators.url(url):
             continue
         domain = core_modules.urlparse(url).netloc
-        if domain and domain not in seen_domains:
-            seen_domains.add(domain)
-            all_urls.append(url)
+        if not domain or domain in seen_domains:
+            continue
+        seen_domains.add(domain)
+        if is_recently_scanned(domain):
+            skipped += 1
+            continue
+        all_urls.append(url)
+
+    if skipped:
+        print(f"Skipped {skipped} domain(s) scanned within the last {RESCAN_AFTER_DAYS} days.")
+
+    if len(all_urls) > MAX_URLS_PER_RUN:
+        print(f"Capping URL list from {len(all_urls)} to {MAX_URLS_PER_RUN}.")
+        all_urls = all_urls[:MAX_URLS_PER_RUN]
 
     return all_urls
 
@@ -51,25 +95,31 @@ def process_domain(url):
     domain = core_modules.urlparse(url).netloc
     scheme = core_modules.urlparse(url).scheme
 
-    symantec_url = "https://sitereview.symantec.com/#/lookup-result/" + domain
-    rslt = core_functions.chrome_get_page_content(symantec_url)
+    with core_modules.sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            symantec_url = "https://sitereview.symantec.com/#/lookup-result/" + domain
+            rslt = core_functions.get_page_content(browser, symantec_url)
 
-    if rslt == -1:
-        print(f"Failure getting page content from domain: {domain} – skipping")
-        return
+            if rslt == -1:
+                print(f"Failure getting page content from domain: {domain} – skipping")
+                return
 
-    soup = core_modules.BeautifulSoup(rslt, "html.parser")
-    cats = soup.find_all("span", class_="clickable-category")
+            soup = core_modules.BeautifulSoup(rslt, "html.parser")
+            cats = soup.find_all("span", class_="clickable-category")
 
-    if len(cats) == 0:
-        return
+            if len(cats) == 0:
+                return
 
-    for cat in cats:
-        if cat.text in banned_sites_data.get("categories", []):
-            print(f"Category '{cat.text}' is banned. Skipping {domain}.")
-            return
+            for cat in cats:
+                if cat.text in banned_sites_data.get("categories", []):
+                    print(f"Category '{cat.text}' is banned. Skipping {domain}.")
+                    return
 
-    contrast = core_functions.chrome_check_contrast(domain)
+            contrast = core_functions.check_contrast(browser, domain)
+        finally:
+            browser.close()
+
     if contrast == 0:
         print(f"Domain {domain} contrast check result: BLOCKED")
         contrast = "BLOCKED"
@@ -122,7 +172,7 @@ all_urls = collect_all_urls()
 num_domains = len(all_urls)
 print(f"Processing {num_domains} unique domains...")
 
-# Process domains in parallel; limit concurrency to avoid overwhelming Chrome
+# Process domains in parallel; limit concurrency to avoid overwhelming resources
 MAX_WORKERS = 5
 
 with core_modules.concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
