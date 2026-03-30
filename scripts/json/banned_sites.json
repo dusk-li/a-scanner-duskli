@@ -1,22 +1,35 @@
 {
     "categories": [
         "Adult/Mature Content",
+        "Adult Material",
+        "Child Abuse",
         "Child Pornography",
+        "Child Sexual Abuse",
         "Compromised Sites",
         "Controlled Substances",
+        "Drug Abuse / Illegal Drugs",
         "Gore/Extreme",
         "Malicious Outbound Data/Botnets",
         "Malicious Sources/Malnets",
-        "Mixed Content/Potentially Adult",
+        "Malicious Websites",
         "Marijuana",
+        "Mixed Content/Potentially Adult",
+        "Misc. Adult Content",
         "Nudity",
+        "Nudity and Risque",
         "Phishing",
+        "Phishing & Other Frauds",
         "Pornography",
+        "Potentially Unwanted Programs",
         "Potentially Unwanted Software",
         "Scam/Questionable Legality",
         "Spam",
+        "Spam URLs",
         "Suspicious",
+        "Suspicious Websites",
+        "Violence",
         "Violence/Intolerance",
-        "Weapons"
+        "Weapons",
+        "Weapons (Sales)"
     ]
 }
