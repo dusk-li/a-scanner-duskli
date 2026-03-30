@@ -113,21 +113,16 @@ def process_domain(url):
 
     log(f"[{domain}] Starting scan...")
 
-    with core_modules.sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        try:
-            log(f"[{domain}] Fetching FortiGuard categorisation...")
-            site_cats = core_functions.get_fortiguard_category(browser, domain)
-            log(f"[{domain}] FortiGuard category: {site_cats}")
+    log(f"[{domain}] Fetching categorify.org categorisation...")
+    site_cats = core_functions.get_categorify_category(domain)
+    log(f"[{domain}] categorify.org category: {site_cats}")
 
-            if any(cat in banned_sites_data.get("categories", []) for cat in site_cats.split(", ")):
-                log(f"[{domain}] Category '{site_cats}' is banned – skipping")
-                return
+    if any(cat in banned_sites_data.get("categories", []) for cat in site_cats.split(", ")):
+        log(f"[{domain}] Category '{site_cats}' is banned – skipping")
+        return
 
-            log(f"[{domain}] Running contrast check...")
-            contrast = core_functions.check_contrast(browser, domain)
-        finally:
-            browser.close()
+    log(f"[{domain}] Running contrast check...")
+    contrast = core_functions.check_contrast(url)
 
     if contrast == 0:
         log(f"[{domain}] Contrast check result: BLOCKED (no result from checker)")
