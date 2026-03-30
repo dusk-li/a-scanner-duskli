@@ -1,0 +1,187 @@
+name: On Review Request
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  handle:
+    if: github.event.label.name == 'review-request'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - name: Extract URL from issue body
+        id: extract
+        run: |
+          URL=$(echo "${{ github.event.issue.body }}" | grep -oP 'https?://[^\s<>"]+' | head -1)
+          if [ -z "$URL" ]; then
+            echo "url=" >> $GITHUB_OUTPUT
+          else
+            echo "url=$URL" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Reject if no valid URL found
+        if: steps.extract.outputs.url == ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '❌ Could not find a valid URL in this request. Please re-open with a URL starting with `https://`.'
+            });
+            await github.rest.issues.update({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              state_reason: 'not_planned'
+            });
+
+      - name: Stop if no URL
+        if: steps.extract.outputs.url == ''
+        run: exit 1
+
+      - name: Check 7-day cooldown
+        id: cooldown
+        run: |
+          DOMAIN=$(python3 -c "from urllib.parse import urlparse; print(urlparse('${{ steps.extract.outputs.url }}').netloc)")
+          YAML_URL="https://raw.githubusercontent.com/dusk-li/dusk-li-data/main/websites/${DOMAIN}.yaml"
+          HTTP_STATUS=$(curl -s -o /tmp/existing.yaml -w "%{http_code}" "$YAML_URL")
+          if [ "$HTTP_STATUS" = "200" ]; then
+            LAST_UPDATED=$(grep '^last_updated:' /tmp/existing.yaml | awk '{print $2}')
+            if [ -n "$LAST_UPDATED" ]; then
+              AGE=$(python3 -c "from datetime import date; d=date.fromisoformat('$LAST_UPDATED'); print((date.today()-d).days)")
+              if [ "$AGE" -lt 7 ]; then
+                echo "too_recent=true" >> $GITHUB_OUTPUT
+                echo "last_updated=$LAST_UPDATED" >> $GITHUB_OUTPUT
+                echo "age=$AGE" >> $GITHUB_OUTPUT
+              else
+                echo "too_recent=false" >> $GITHUB_OUTPUT
+              fi
+            else
+              echo "too_recent=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "too_recent=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Reject if scanned too recently
+        if: steps.cooldown.outputs.too_recent == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `⏳ **${{ steps.extract.outputs.url }}** was last scanned on ${{ steps.cooldown.outputs.last_updated }} (${{ steps.cooldown.outputs.age }} day(s) ago). Please wait at least 7 days between review requests for the same site.`
+            });
+            await github.rest.issues.update({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              state_reason: 'not_planned'
+            });
+
+      - name: Stop if too recent
+        if: steps.cooldown.outputs.too_recent == 'true'
+        run: exit 1
+
+      - name: Post scanning comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '🔍 Scanning **${{ steps.extract.outputs.url }}** — this usually takes 1–2 minutes. Results will be posted here when complete.'
+            });
+
+      - name: Checkout scanner repository
+        uses: actions/checkout@v4
+
+      - name: Checkout dusk-li-data repository
+        uses: actions/checkout@v4
+        with:
+          repository: dusk-li/dusk-li-data
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          path: dusk-li-data
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r scripts/requirements.txt
+          npm install -g pa11y
+
+      - name: Create output directory
+        run: mkdir -p scripts/websites
+
+      - name: Run scanner for requested URL
+        run: |
+          cd scripts
+          python scanner.py
+        env:
+          DATA_REPO_PATH: ${{ github.workspace }}/dusk-li-data
+          FORCE_URL: ${{ steps.extract.outputs.url }}
+
+      - name: Copy result to dusk-li-data
+        run: |
+          if ls scripts/websites/*.yaml 1>/dev/null 2>&1; then
+            cp -v scripts/websites/*.yaml dusk-li-data/websites/
+          else
+            echo "No YAML produced — scan may have failed"
+          fi
+
+      - name: Commit and push result
+        run: |
+          cd dusk-li-data
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add websites/
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: review request scan for ${{ steps.extract.outputs.url }}"
+            git push
+          fi
+
+      - name: Post results comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const url = '${{ steps.extract.outputs.url }}';
+            const domain = new URL(url).hostname;
+            const yamlPath = `${process.env.GITHUB_WORKSPACE}/dusk-li-data/websites/${domain}.yaml`;
+            let body;
+            try {
+              const yaml = fs.readFileSync(yamlPath, 'utf8');
+              body = `✅ **Scan complete for ${url}**\n\n\`\`\`yaml\n${yaml}\`\`\`\n\nResults will appear on [dusk.li](https://dusk.li) once the site rebuilds (usually within a minute).`;
+            } catch (e) {
+              body = `⚠️ The scan ran but no result file was produced for \`${domain}\`. The site may be unreachable or blocking automated checks.`;
+            }
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+            await github.rest.issues.update({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              state_reason: 'completed'
+            });

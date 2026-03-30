@@ -154,24 +154,35 @@ def process_domain(url):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-all_urls = collect_all_urls()
-num_domains = len(all_urls)
-log(f"Processing {num_domains} unique domains...")
+FORCE_URL = core_modules.os.environ.get("FORCE_URL", "").strip()
 
-# Process domains in parallel; limit concurrency to avoid overwhelming resources
-MAX_WORKERS = 5
+if FORCE_URL:
+    # Single-URL forced scan (e.g. triggered by a review request issue).
+    # Bypasses is_recently_scanned() so re-reviews always run.
+    log(f"FORCE_URL set — scanning {FORCE_URL} only.")
+    if not core_modules.validators.url(FORCE_URL):
+        log(f"FORCE_URL '{FORCE_URL}' is not a valid URL. Exiting.")
+        raise SystemExit(1)
+    process_domain(FORCE_URL)
+else:
+    all_urls = collect_all_urls()
+    num_domains = len(all_urls)
+    log(f"Processing {num_domains} unique domains...")
 
-with core_modules.concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-    futures = {executor.submit(process_domain, url): url for url in all_urls}
-    for i, future in enumerate(core_modules.concurrent.futures.as_completed(futures), start=1):
-        url = futures[future]
-        domain = core_modules.urlparse(url).netloc
-        try:
-            future.result()
-        except Exception as exc:
-            log(f"[{i}/{num_domains}] {domain} generated an exception: {exc}")
-        else:
-            log(f"[{i}/{num_domains}] Completed: {domain}")
+    # Process domains in parallel; limit concurrency to avoid overwhelming resources
+    MAX_WORKERS = 5
+
+    with core_modules.concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {executor.submit(process_domain, url): url for url in all_urls}
+        for i, future in enumerate(core_modules.concurrent.futures.as_completed(futures), start=1):
+            url = futures[future]
+            domain = core_modules.urlparse(url).netloc
+            try:
+                future.result()
+            except Exception as exc:
+                log(f"[{i}/{num_domains}] {domain} generated an exception: {exc}")
+            else:
+                log(f"[{i}/{num_domains}] Completed: {domain}")
 
 # Report how many YAML files were produced
 yaml_files = _glob.glob("websites/*.yaml")
