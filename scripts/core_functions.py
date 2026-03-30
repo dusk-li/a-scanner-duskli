@@ -1,64 +1,8 @@
 import core_modules
 
-SITECATEGORY_SESSION_URL = "https://api.sitecategory.com/api/session"
-SITECATEGORY_CATEGORIZE_URL = "https://api.sitecategory.com/api/categorize"
-
 
 def _log(msg):
     print(msg, flush=True)
-
-
-def get_sitecategory_token():
-    """Obtain a session token from the sitecategory.com API.
-
-    Returns the token string, or None on failure.
-    """
-    try:
-        response = core_modules.requests.post(
-            SITECATEGORY_SESSION_URL,
-            headers={"Content-Type": "application/json"},
-            timeout=15,
-        )
-        response.raise_for_status()
-        token = response.json().get("token")
-        _log(f"[sitecategory] Session token obtained")
-        return token
-    except Exception as e:
-        _log(f"[sitecategory] Failed to obtain session token: {e}")
-        return None
-
-
-def get_sitecategory_category(domain, token):
-    """Get the URL category for a domain using the sitecategory.com API.
-
-    Returns the category string (e.g. 'Search Engines and Portals') or
-    'Unknown' if the category cannot be determined. Never raises.
-    """
-    if not token:
-        _log(f"  [get_sitecategory_category] No token available – using 'Unknown' for {domain}")
-        return "Unknown"
-    try:
-        _log(f"  [get_sitecategory_category] Looking up category for {domain}")
-        response = core_modules.requests.post(
-            SITECATEGORY_CATEGORIZE_URL,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {token}",
-            },
-            json={"domain": domain},
-            timeout=15,
-        )
-        response.raise_for_status()
-        data = response.json()
-        category = data.get("category", "")
-        if category:
-            _log(f"  [get_sitecategory_category] Category for {domain}: {category}")
-            return category
-        _log(f"  [get_sitecategory_category] No category returned for {domain} – using 'Unknown'")
-        return "Unknown"
-    except Exception as e:
-        _log(f"  [get_sitecategory_category] Error fetching category for {domain}: {e}")
-        return "Unknown"
 
 
 def check_contrast(url):
