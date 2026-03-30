@@ -1,40 +1,63 @@
 import core_modules
 
-CATEGORIFY_API_URL = "https://categorify.org/api"
+SITECATEGORY_SESSION_URL = "https://api.sitecategory.com/api/session"
+SITECATEGORY_CATEGORIZE_URL = "https://api.sitecategory.com/api/categorize"
 
 
 def _log(msg):
     print(msg, flush=True)
 
 
-def get_categorify_category(domain):
-    """Get the URL category for a domain using the categorify.org API.
+def get_sitecategory_token():
+    """Obtain a session token from the sitecategory.com API.
 
-    Returns a comma-separated category string (e.g. 'Search Engine, Clean Browsing')
-    or 'Unknown' if the category cannot be determined.  Never raises; all errors are
-    handled internally so callers can always expect a string back.
+    Returns the token string, or None on failure.
     """
     try:
-        _log(f"  [get_categorify_category] Looking up category for {domain}")
-        response = core_modules.requests.get(
-            CATEGORIFY_API_URL,
-            params={"website": domain},
+        response = core_modules.requests.post(
+            SITECATEGORY_SESSION_URL,
+            headers={"Content-Type": "application/json"},
             timeout=15,
         )
-        if response.status_code == 400:
-            _log(f"  [get_categorify_category] Invalid domain or unprocessable: {domain} – using 'Unknown'")
-            return "Unknown"
+        response.raise_for_status()
+        token = response.json().get("token")
+        _log(f"[sitecategory] Session token obtained")
+        return token
+    except Exception as e:
+        _log(f"[sitecategory] Failed to obtain session token: {e}")
+        return None
+
+
+def get_sitecategory_category(domain, token):
+    """Get the URL category for a domain using the sitecategory.com API.
+
+    Returns the category string (e.g. 'Search Engines and Portals') or
+    'Unknown' if the category cannot be determined. Never raises.
+    """
+    if not token:
+        _log(f"  [get_sitecategory_category] No token available – using 'Unknown' for {domain}")
+        return "Unknown"
+    try:
+        _log(f"  [get_sitecategory_category] Looking up category for {domain}")
+        response = core_modules.requests.post(
+            SITECATEGORY_CATEGORIZE_URL,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            },
+            json={"domain": domain},
+            timeout=15,
+        )
         response.raise_for_status()
         data = response.json()
-        categories = data.get("category", [])
-        if categories:
-            result = ", ".join(categories)
-            _log(f"  [get_categorify_category] Category for {domain}: {result}")
-            return result
-        _log(f"  [get_categorify_category] No category returned for {domain} – using 'Unknown'")
+        category = data.get("category", "")
+        if category:
+            _log(f"  [get_sitecategory_category] Category for {domain}: {category}")
+            return category
+        _log(f"  [get_sitecategory_category] No category returned for {domain} – using 'Unknown'")
         return "Unknown"
     except Exception as e:
-        _log(f"  [get_categorify_category] Error fetching category for {domain}: {e}")
+        _log(f"  [get_sitecategory_category] Error fetching category for {domain}: {e}")
         return "Unknown"
 
 
