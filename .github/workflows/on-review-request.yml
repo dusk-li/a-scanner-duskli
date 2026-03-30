@@ -49,13 +49,13 @@ jobs:
       - name: Check 7-day cooldown
         id: cooldown
         run: |
-          DOMAIN=$(python3 -c "from urllib.parse import urlparse; print(urlparse('${{ steps.extract.outputs.url }}').netloc)")
+          DOMAIN=$(URL="${{ steps.extract.outputs.url }}" python3 -c "from urllib.parse import urlparse; import os; print(urlparse(os.environ['URL']).netloc)")
           YAML_URL="https://raw.githubusercontent.com/dusk-li/dusk-li-data/main/websites/${DOMAIN}.yaml"
           HTTP_STATUS=$(curl -s -o /tmp/existing.yaml -w "%{http_code}" "$YAML_URL")
           if [ "$HTTP_STATUS" = "200" ]; then
             LAST_UPDATED=$(grep '^last_updated:' /tmp/existing.yaml | awk '{print $2}')
             if [ -n "$LAST_UPDATED" ]; then
-              AGE=$(python3 -c "from datetime import date; d=date.fromisoformat('$LAST_UPDATED'); print((date.today()-d).days)")
+              AGE=$(LAST_UPDATED="$LAST_UPDATED" python3 -c "from datetime import date; import os; d=date.fromisoformat(os.environ['LAST_UPDATED']); print((date.today()-d).days)")
               if [ "$AGE" -lt 7 ]; then
                 echo "too_recent=true" >> $GITHUB_OUTPUT
                 echo "last_updated=$LAST_UPDATED" >> $GITHUB_OUTPUT
