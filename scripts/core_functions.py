@@ -1,96 +1,64 @@
 import core_modules
-    
-def chrome_get_page_content(c_url):
-    ua = core_modules.UserAgent()
-    userAgent = ua.random
-    options = core_modules.Options()
-    options.add_argument('--headless')
-    options.add_argument(f'--user-agent={userAgent}')
-    prefs = {"download.default_directory": "/tmp/downloads/"}
-    options.add_experimental_option("prefs", prefs)
-    options.add_argument("--enable-javascript")
 
-    # Initialize the Chrome driver
-    driver = core_modules.webdriver.Chrome(options=options)
+
+def get_page_content(browser, c_url):
+    """Fetch rendered page HTML from the given URL using an existing Playwright browser."""
+    page = browser.new_page()
+    page_content = ""
     try:
-        driver.implicitly_wait(5)
         retries = 3
         while retries > 0:
-            driver.get(c_url)
-            # Wait for page load and spinner to disappear, up to 15 seconds
+            page.goto(c_url, timeout=30000)
+            # Wait for the loading spinner to disappear
             try:
-                core_modules.WebDriverWait(driver, 15).until(
-                    core_modules.EC.invisibility_of_element_located((core_modules.By.CLASS_NAME, "loading-spinner"))
-                )
-            except core_modules.TimeoutException:
+                page.wait_for_selector(".loading-spinner", state="hidden", timeout=20000)
+            except core_modules.PlaywrightTimeoutError:
                 print(f"Spinner still present after attempt {4 - retries}")
                 retries -= 1
                 continue
 
-            # Execute JavaScript and get the page content
-            page_content = driver.execute_script("return document.body.innerHTML")
-            soup = core_modules.BeautifulSoup(page_content, 'html.parser')
-            spinner = soup.find_all("div", class_="loading-spinner ng-star-inserted")
-            if spinner:
-                print(f"Spinner found after attempt {4 - retries}")
-                retries -= 1
-            else:
-                break
-
-        driver.quit()
+            page_content = page.inner_html("body")
+            break
 
     except Exception as e:
-        print(e)
+        print(f"Error fetching page content for {c_url}: {e}")
         return -1
+    finally:
+        page.close()
 
     return page_content
 
-def chrome_check_contrast(t_url):
-    # Setup options for headless Chrome
-    options = core_modules.Options()
-    options.add_argument("--headless")
-    prefs = {"download.default_directory" : "/tmp/downloads/"}
-    options.add_experimental_option("prefs",prefs)
 
-    # Initialize the Chrome driver
-    driver = core_modules.webdriver.Chrome(options=options)
+def check_contrast(browser, t_url):
+    """Check colour contrast for the given domain using an existing Playwright browser."""
+    page = browser.new_page()
     try:
-        driver.get("https://color.a11y.com/Contrast/")
+        page.goto("https://color.a11y.com/Contrast/", timeout=30000)
+        page.fill('[name="urltotest"]', t_url)
+        page.click('[name="submitbutton"]')
 
-        input_field = driver.find_element(core_modules.By.NAME, "urltotest")
-        
-        input_field.send_keys(t_url)
-
-        check_button = driver.find_element(core_modules.By.NAME, "submitbutton")
-
-        check_button.click()
-
-        # Wait for results to appear instead of a fixed sleep
+        # Wait for results to appear
         try:
-            core_modules.WebDriverWait(driver, 15).until(
-                lambda d: len(d.find_elements(core_modules.By.CLASS_NAME, "congratsbox")) > 0 or
-                          len(d.find_elements(core_modules.By.CLASS_NAME, "nocongratsbox")) > 0
-            )
-        except core_modules.TimeoutException:
+            page.wait_for_selector(".congratsbox, .nocongratsbox", timeout=20000)
+        except core_modules.PlaywrightTimeoutError:
             pass
 
-        page_content = driver.execute_script("return document.body.innerHTML")
-        soup = core_modules.BeautifulSoup(page_content, 'html.parser')
+        page_content = page.inner_html("body")
+        soup = core_modules.BeautifulSoup(page_content, "html.parser")
         failed = soup.find_all("div", class_="nocongratsbox")
         passed = soup.find_all("div", class_="congratsbox")
-        driver.quit()
-        
+
         if len(failed) > 0:
             return "FAIL"
         if len(passed) > 0:
             return "PASS"
 
     except Exception as e:
-
-        print(e)
-        
+        print(f"Error checking contrast for {t_url}: {e}")
         return -1
-    
+    finally:
+        page.close()
+
     return 0
 
 

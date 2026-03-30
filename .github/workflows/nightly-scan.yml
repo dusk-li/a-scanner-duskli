@@ -27,20 +27,16 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Chrome
-        uses: browser-actions/setup-chrome@v1
-
-      - name: Install ChromeDriver
-        uses: nanasess/setup-chromedriver@v2
-
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
           pip install -r scripts/requirements.txt
 
+      - name: Install Playwright browser
+        run: playwright install --with-deps chromium
+
       - name: Create output directories
         run: |
-          mkdir -p /tmp/sites
           mkdir -p /tmp/downloads
           mkdir -p scripts/websites
 
@@ -49,7 +45,7 @@ jobs:
           cd scripts
           python scanner.py
         env:
-          DISPLAY: ':99'
+          DATA_REPO_PATH: ${{ github.workspace }}/dusk-li-data
 
       - name: Copy results to dusk-li-data
         run: |
