@@ -106,8 +106,8 @@ def process_domain(url):
         body = response.text
         log(f"[{domain}] HTTP fetch succeeded ({len(body)} bytes)")
     except Exception as e:
-        log(f"[{domain}] HTTP request failed: {e}")
-        body = ""
+        log(f"[{domain}] HTTP request failed: {e} — skipping site")
+        return
 
     if "@media (prefers-color-scheme: dark" in body \
             or "@media (prefers-color-scheme:dark" in body:
