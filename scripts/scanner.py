@@ -52,8 +52,8 @@ def collect_all_urls():
     all_urls = []
 
     sources = load_input_file()
-    sources += core_functions.fetch_urls_from_tranco(limit=500)
-    sources += core_functions.fetch_urls_from_majestic(limit=500)
+    sources += core_functions.fetch_urls_from_tranco(limit=5000)
+    sources += core_functions.fetch_urls_from_majestic(limit=5000)
 
     log(f"Total raw URLs from all sources: {len(sources)}")
 
