@@ -15,8 +15,8 @@ log(f"Scanner started on {today}")
 # Path to the checked-out data repository (set by the workflow)
 DATA_REPO_PATH = core_modules.os.environ.get("DATA_REPO_PATH", "../dusk-li-data")
 
-# Skip domains already scanned within this many days
-RESCAN_AFTER_DAYS = 90
+# Maximum number of new (not-yet-in-data-repo) URLs to scan per run
+SCAN_LIMIT = 500
 
 # ── Collect URLs from all sources ────────────────────────────────────────────
 
@@ -35,36 +35,23 @@ def load_input_file(path="input/input.txt"):
     return urls
 
 
-def is_recently_scanned(domain, days=RESCAN_AFTER_DAYS):
-    """Return True if the domain was scanned less than `days` days ago."""
+def is_in_data_repo(domain):
+    """Return True if the domain already has a YAML file in dusk-li-data."""
     yaml_path = core_modules.os.path.join(DATA_REPO_PATH, "websites", f"{domain}.yaml")
-    if not core_modules.os.path.exists(yaml_path):
-        return False
-    try:
-        with open(yaml_path, "r") as f:
-            for line in f:
-                if line.startswith("last_updated:"):
-                    date_str = line.split(":", 1)[1].strip()
-                    last_updated = core_modules.datetime.date.fromisoformat(date_str)
-                    age = (core_modules.datetime.date.today() - last_updated).days
-                    return age < days
-    except (ValueError, OSError) as e:
-        log(f"Warning: could not read last_updated for {domain}: {e}")
-    return False
+    return core_modules.os.path.exists(yaml_path)
 
 
 def collect_all_urls():
     """Merge URLs from all sources, deduplicating.
 
-    Sources: static input file, existing data-repo YAMLs (for rescan),
-    Tranco top-500, Majestic top-500.
-    Domains already scanned within RESCAN_AFTER_DAYS are skipped.
+    Sources: static input file, Tranco top-500, Majestic top-500.
+    Domains already present in dusk-li-data are skipped.
+    Returns at most SCAN_LIMIT URLs.
     """
     seen_domains = set()
     all_urls = []
 
     sources = load_input_file()
-    sources += core_functions.fetch_urls_from_data_repo(DATA_REPO_PATH)
     sources += core_functions.fetch_urls_from_tranco(limit=500)
     sources += core_functions.fetch_urls_from_majestic(limit=500)
 
@@ -83,15 +70,14 @@ def collect_all_urls():
             duplicates += 1
             continue
         seen_domains.add(domain)
-        if is_recently_scanned(domain):
+        if is_in_data_repo(domain):
             skipped += 1
             continue
         all_urls.append(url)
+        if len(all_urls) >= SCAN_LIMIT:
+            break
 
-    log(f"URL filtering: {invalid} invalid, {duplicates} duplicates, {skipped} recently scanned, {len(all_urls)} remaining")
-
-    if skipped:
-        log(f"Skipped {skipped} domain(s) scanned within the last {RESCAN_AFTER_DAYS} days.")
+    log(f"URL filtering: {invalid} invalid, {duplicates} duplicates, {skipped} already in data repo, {len(all_urls)} collected" + (" (limit reached)" if len(all_urls) >= SCAN_LIMIT else ""))
 
     return all_urls
 
@@ -159,7 +145,7 @@ FORCE_URL = core_modules.os.environ.get("FORCE_URL", "").strip()
 
 if FORCE_URL:
     # Single-URL forced scan (e.g. triggered by a review request issue).
-    # Bypasses is_recently_scanned() so re-reviews always run.
+    # Bypasses is_in_data_repo() so re-reviews always run.
     log(f"FORCE_URL set — scanning {FORCE_URL} only.")
     if not core_modules.validators.url(FORCE_URL):
         log(f"FORCE_URL '{FORCE_URL}' is not a valid URL. Exiting.")
