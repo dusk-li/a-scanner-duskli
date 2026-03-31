@@ -16,7 +16,7 @@ log(f"Scanner started on {today}")
 DATA_REPO_PATH = core_modules.os.environ.get("DATA_REPO_PATH", "../dusk-li-data")
 
 # Maximum number of new (not-yet-in-data-repo) URLs to scan per run
-SCAN_LIMIT = 5000
+SCAN_LIMIT = 1500
 
 # ── Collect URLs from all sources ────────────────────────────────────────────
 
