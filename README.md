@@ -98,7 +98,7 @@ a-scanner-duskli/
 ### `nightly-scan.yml` — Daily broad scan
 
 - **Trigger:** `cron: '0 2 * * *'` (02:00 UTC) and `workflow_dispatch`
-- **What it does:** Runs the full scanner against all URL sources (input file + Tranco + Majestic top 500 + existing data for rescan). Results are committed to `dusk-li-data`.
+- **What it does:** Runs the full scanner against all URL sources (input file + Tranco + Majestic top 50000 + existing data for rescan). Results are committed to `dusk-li-data`.
 - **Required secret:** `DATA_REPO_TOKEN` — a PAT with write access to `dusk-li/dusk-li-data`
 
 ### `rescan-stale.yml` — Stale site rescan
