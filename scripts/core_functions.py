@@ -67,7 +67,7 @@ def fetch_urls_from_data_repo(data_repo_path):
     return urls
 
 
-def fetch_urls_from_tranco(limit=5000):
+def fetch_urls_from_tranco(limit=50000):
     """Fetch the top `limit` URLs from the Tranco Top-1M list."""
     tranco_url = "https://tranco-list.eu/top-1m.csv.zip"
     urls = []
@@ -91,7 +91,7 @@ def fetch_urls_from_tranco(limit=5000):
     return urls
 
 
-def fetch_urls_from_majestic(limit=5000):
+def fetch_urls_from_majestic(limit=50000):
     """Fetch the top `limit` URLs from the Majestic Million list."""
     majestic_url = "https://downloads.majestic.com/majestic_million.csv"
     urls = []
