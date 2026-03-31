@@ -63,8 +63,8 @@ The scanner aggregates URLs from four sources and deduplicates by domain:
 |--------|-------------|
 | `scripts/input/input.txt` | Static curated list committed to this repo |
 | `dusk-li-data/websites/*.yaml` | All domains already in the catalogue (candidates for rescan) |
-| [Tranco Top-1M](https://tranco-list.eu/) | Top 500 domains (fetched at runtime) |
-| [Majestic Million](https://majestic.com/reports/majestic-million) | Top 500 domains (fetched at runtime) |
+| [Tranco Top-1M](https://tranco-list.eu/) | Top 50000 domains (fetched at runtime) |
+| [Majestic Million](https://majestic.com/reports/majestic-million) | Top 50000 domains (fetched at runtime) |
 
 Domains scanned within the last **90 days** are skipped automatically (configurable via `RESCAN_AFTER_DAYS` in `scanner.py`).
 
