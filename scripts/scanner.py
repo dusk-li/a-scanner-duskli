@@ -1,102 +1,176 @@
 import core_modules
 import core_functions
+import glob as _glob
 
 core_modules.http.client._MAXHEADERS = 1000
 
+# Flush stdout immediately so CI logs appear in real-time
+def log(msg):
+    print(msg, flush=True)
+
 today = core_modules.date.today().isoformat()
 
-i = 1
+log(f"Scanner started on {today}")
 
-# Read the banned_sites JSON file
-with open("json/banned_sites.json") as banned_sites:
-    banned_sites_data = core_modules.json.load(banned_sites)
+# Path to the checked-out data repository (set by the workflow)
+DATA_REPO_PATH = core_modules.os.environ.get("DATA_REPO_PATH", "../dusk-li-data")
 
-# Open File
-print("Processing domains...")
-num_domains = sum(1 for _ in open('input/input.txt', 'r'))
-with open('input/input.txt', 'r') as file:
-    lines = file.readlines()  # Read all lines into a list
-    num_domains = len(lines)  # Get the total number of domains
-    for line in lines:
-        urlvalidation = core_modules.validators.url(line.rstrip())
-        if urlvalidation:
-            domain = core_modules.urlparse(line).netloc
-            print(f"Processing domain {i} of {num_domains}:", domain)
-            # Setup url for Symantec lookup inc domain to lookup
-            symantec_url = 'https://sitereview.symantec.com/#/lookup-result/' + domain
+# Maximum number of new (not-yet-in-data-repo) URLs to scan per run
+SCAN_LIMIT = 1500
 
-            # Query Symantec
-            rslt = core_functions.chrome_get_page_content(symantec_url)
-                
-            if rslt == -1:
-                print("Failure getting page content from domain: ",domain," - EXITING")
-                core_modules.sys.exit()
-            else:
-                soup = core_modules.BeautifulSoup(rslt, 'html.parser')
-                cats = soup.find_all("span", class_="clickable-category")
+# ── Collect URLs from all sources ────────────────────────────────────────────
 
-                if len(cats) > 0:
-                    for cat in cats:
-                        if cat.text in banned_sites_data.get('categories', []):
-                            print("Category",cat.text," is in the banned sites data. Skipping.")
-                            break
-                    else:
-                        fname = "/tmp/sites/" + domain + ".txt"
-                        print("Success! There are",len(cats), "categories for", domain)
-                        contrast = core_functions.chrome_check_contrast(domain)
-                        if contrast == 0:
-                            print("Domain", domain, "contrast check result: BLOCKED")
-                            contrast = "BLOCKED"
-                        else:
-                            print("Domain", domain, "contrast check result:",contrast)
-                        scheme = core_modules.urlparse(line).scheme
-                        url = core_modules.urlparse(line).netloc
-                        response = core_modules.requests.get(f"{scheme}://{url}")
-                        
-                        if response.text.find("@media (prefers-color-scheme: dark") >= 0 \
-                                or response.text.find("@media (prefers-color-scheme:dark") >= 0:
-                            dark_mode_score = 1
-                            dark_mode = "Manual"
+def load_input_file(path="input/input.txt"):
+    """Load URLs from the static input file."""
+    urls = []
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.rstrip()
+                if line:
+                    urls.append(line)
+        log(f"Loaded {len(urls)} URLs from {path}")
+    except FileNotFoundError:
+        log(f"Input file not found: {path}")
+    return urls
 
-                        elif response.text.find("window.matchMedia('(prefers-color-scheme: dark") >= 0 \
-                                or response.text.find("window.matchMedia('(prefers-color-scheme:dark") >= 0:
-                            dark_mode_score = 2
-                            dark_mode = "Auto"
 
-                        else: 
-                            dark_mode_score = 0
-                            dark_mode = "None"
+def is_in_data_repo(domain):
+    """Return True if the domain already has a YAML file in dusk-li-data."""
+    yaml_path = core_modules.os.path.join(DATA_REPO_PATH, "websites", f"{domain}.yaml")
+    return core_modules.os.path.exists(yaml_path)
 
-                                                                        
-                        if contrast == "PASS":
-                            contrast_score = 1
-                        else:
-                            contrast_score = 0
-                        
-                        site_score = dark_mode_score + contrast_score
-                        site_cats = ', '.join(element.get_text() for element in cats)
-                        
-                        yaml_string = (
-                        f"---\n"
-                        f"category: {site_cats}\n"
-                        f"url: {scheme}://{domain}\n"
-                        f"dark_mode: {dark_mode}\n"
-                        f"contrast_accessibility: {contrast}\n"
-                        f"accessibility_rating: {site_score}/3\n"
-                        f"last_updated: {today}\n"
-                        )
-                        
-                        # Specify the output file path
-                        output_file = f'websites/{domain}.yaml'
 
-                        # Write the dictionary to the YAML file
-                        with open(output_file, 'w') as yaml_file:
-                            yaml_file.write(yaml_string)
-                            yaml_file.close()
+def collect_all_urls():
+    """Merge URLs from all sources, deduplicating.
 
-                        print(f"Dictionary saved as '{output_file}'.")
-        
-                i = i + 1
-        else:
-            print("Skipping Invalid URL:", line)
+    Sources: static input file, Tranco top-500, Majestic top-500.
+    Domains already present in dusk-li-data are skipped.
+    Returns at most SCAN_LIMIT URLs.
+    """
+    seen_domains = set()
+    all_urls = []
+
+    sources = load_input_file()
+    sources += core_functions.fetch_urls_from_tranco(limit=5000)
+    sources += core_functions.fetch_urls_from_majestic(limit=5000)
+
+    log(f"Total raw URLs from all sources: {len(sources)}")
+
+    skipped = 0
+    invalid = 0
+    duplicates = 0
+    for url in sources:
+        url = url.rstrip()
+        if not core_modules.validators.url(url):
+            invalid += 1
+            continue
+        domain = core_modules.urlparse(url).hostname
+        if not domain or domain in seen_domains:
+            duplicates += 1
+            continue
+        seen_domains.add(domain)
+        if is_in_data_repo(domain):
+            skipped += 1
+            continue
+        all_urls.append(url)
+        if len(all_urls) >= SCAN_LIMIT:
             break
+
+    log(f"URL filtering: {invalid} invalid, {duplicates} duplicates, {skipped} already in data repo, {len(all_urls)} collected" + (" (limit reached)" if len(all_urls) >= SCAN_LIMIT else ""))
+
+    return all_urls
+
+# ── Per-domain scan logic ─────────────────────────────────────────────────────
+
+def process_domain(url):
+    """Scan a single URL and write a YAML file if it passes all checks."""
+    parsed = core_modules.urlparse(url)
+    domain = parsed.hostname  # hostname only (no port) — matches YAML filenames
+    scheme = parsed.scheme
+
+    log(f"[{domain}] Starting scan...")
+
+    log(f"[{domain}] Running contrast check...")
+    contrast = core_functions.check_contrast(url)
+
+    if contrast == 0:
+        log(f"[{domain}] Contrast check result: BLOCKED (no result from checker)")
+        contrast = "BLOCKED"
+    else:
+        log(f"[{domain}] Contrast check result: {contrast}")
+
+    try:
+        response = core_modules.requests.get(f"{scheme}://{domain}", timeout=15)
+        response.raise_for_status()
+        body = response.text
+        log(f"[{domain}] HTTP fetch succeeded ({len(body)} bytes)")
+    except Exception as e:
+        log(f"[{domain}] HTTP request failed: {e} — skipping site")
+        return
+
+    if "@media (prefers-color-scheme: dark" in body \
+            or "@media (prefers-color-scheme:dark" in body:
+        dark_mode_score = 1
+        dark_mode = "Manual"
+    elif "window.matchMedia('(prefers-color-scheme: dark" in body \
+            or "window.matchMedia('(prefers-color-scheme:dark" in body:
+        dark_mode_score = 2
+        dark_mode = "Auto"
+    else:
+        dark_mode_score = 0
+        dark_mode = "None"
+
+    contrast_score = 1 if contrast == "PASS" else 0
+    site_score = dark_mode_score + contrast_score
+
+    yaml_string = (
+        f"---\n"
+        f"url: {scheme}://{domain}\n"
+        f"dark_mode: {dark_mode}\n"
+        f"contrast_accessibility: {contrast}\n"
+        f"accessibility_rating: {site_score}/3\n"
+        f"last_updated: {today}\n"
+    )
+
+    output_file = f"websites/{domain}.yaml"
+    with open(output_file, "w") as yaml_file:
+        yaml_file.write(yaml_string)
+
+    log(f"[{domain}] Saved '{output_file}' (dark_mode: {dark_mode}, score: {site_score}/3)")
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+FORCE_URL = core_modules.os.environ.get("FORCE_URL", "").strip()
+
+if FORCE_URL:
+    # Single-URL forced scan (e.g. triggered by a review request issue).
+    # Bypasses is_in_data_repo() so re-reviews always run.
+    log(f"FORCE_URL set — scanning {FORCE_URL} only.")
+    if not core_modules.validators.url(FORCE_URL):
+        log(f"FORCE_URL '{FORCE_URL}' is not a valid URL. Exiting.")
+        raise SystemExit(1)
+    process_domain(FORCE_URL)
+else:
+    all_urls = collect_all_urls()
+    num_domains = len(all_urls)
+    log(f"Processing {num_domains} unique domains...")
+
+    # Process domains in parallel; limit concurrency to avoid overwhelming resources
+    MAX_WORKERS = 5
+
+    with core_modules.concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {executor.submit(process_domain, url): url for url in all_urls}
+        for i, future in enumerate(core_modules.concurrent.futures.as_completed(futures), start=1):
+            url = futures[future]
+            domain = core_modules.urlparse(url).netloc
+            try:
+                future.result()
+            except Exception as exc:
+                log(f"[{i}/{num_domains}] {domain} generated an exception: {exc}")
+            else:
+                log(f"[{i}/{num_domains}] Completed: {domain}")
+
+# Report how many YAML files were produced
+yaml_files = _glob.glob("websites/*.yaml")
+log(f"Scan complete. {len(yaml_files)} YAML file(s) written to websites/")

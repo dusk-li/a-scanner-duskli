@@ -1,90 +1,115 @@
 import core_modules
-    
-def chrome_get_page_content(c_url):
-    ua = core_modules.UserAgent()
-    userAgent = ua.random
-    options = core_modules.Options()
-    options.add_argument('--headless')
-    options.add_argument(f'--user-agent={userAgent}')
-    prefs = {"download.default_directory": "/tmp/downloads/"}
-    options.add_experimental_option("prefs", prefs)
-    options.add_argument("--enable-javascript")
 
-    # Initialize the Chrome driver
-    driver = core_modules.webdriver.Chrome(options=options)
+
+def _log(msg):
+    print(msg, flush=True)
+
+
+def check_contrast(url):
+    """Check colour contrast and accessibility for the given URL using pa11y.
+
+    Returns 'PASS' if no WCAG2AA errors are found, 'FAIL' if errors exist,
+    or -1 on a technical failure (pa11y crash / timeout).
+    """
     try:
-        driver.implicitly_wait(5)
-        retries = 3
-        while retries > 0:
-            driver.get(c_url)
-            core_modules.time.sleep(5)
-            driver.refresh()
+        _log(f"  [check_contrast] Running pa11y for {url}")
+        result = core_modules.subprocess.run(
+            [
+                "pa11y",
+                "--reporter", "json",
+                "--standard", "WCAG2AA",
+                "--chromium-flag", "--no-sandbox",
+                "--chromium-flag", "--disable-setuid-sandbox",
+                url,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        # pa11y exit codes: 0 = clean, 1 = issues found, 2 = technical error
+        if result.returncode == 2:
+            _log(f"  [check_contrast] pa11y technical error for {url}: {result.stderr.strip()}")
+            return -1
 
-            # Wait for the spinner to disappear (timeout after 10 seconds)
-            try:
-                core_modules.WebDriverWait(driver, 10).until(
-                    core_modules.EC.invisibility_of_element_located((core_modules.By.CLASS_NAME, "loading-spinner"))
-                )
-            except core_modules.TimeoutException:
-                print(f"Spinner still present after attempt {4 - retries}")
-                retries -= 1
+        issues = core_modules.json.loads(result.stdout) if result.stdout.strip() else []
+        errors = [i for i in issues if i.get("type") == "error"]
+        _log(f"  [check_contrast] {url}: {len(errors)} WCAG2AA error(s) ({len(issues)} total issue(s))")
+        return "FAIL" if errors else "PASS"
+
+    except core_modules.subprocess.TimeoutExpired:
+        _log(f"  [check_contrast] pa11y timed out for {url}")
+        return -1
+    except Exception as e:
+        _log(f"  [check_contrast] Error checking accessibility for {url}: {e}")
+        return -1
+
+
+def fetch_urls_from_data_repo(data_repo_path):
+    """Return URLs for all domains already in the data repo.
+
+    These are candidates for rescan — the is_recently_scanned filter in
+    collect_all_urls() will exclude any scanned within RESCAN_AFTER_DAYS.
+    """
+    urls = []
+    websites_dir = core_modules.os.path.join(data_repo_path, "websites")
+    if not core_modules.os.path.isdir(websites_dir):
+        _log(f"Data repo websites dir not found: {websites_dir}")
+        return urls
+    try:
+        for fname in core_modules.os.listdir(websites_dir):
+            if not fname.endswith(".yaml"):
                 continue
-
-            # Execute JavaScript and get the page content
-            page_content = driver.execute_script("return document.body.innerHTML")
-            soup = core_modules.BeautifulSoup(page_content, 'html.parser')
-            spinner = soup.find_all("div", class_="loading-spinner ng-star-inserted")
-            if spinner:
-                print(f"Spinner found after attempt {4 - retries}")
-                retries -= 1
-            else:
-                break
-
-        driver.quit()
-
+            domain = fname[:-5]  # strip .yaml
+            urls.append(f"https://{domain}/")
+        _log(f"Found {len(urls)} URLs in data repo for rescan consideration.")
     except Exception as e:
-        print(e)
-        return -1
+        _log(f"Failed to read data repo: {e}")
+    return urls
 
-    return page_content
 
-def chrome_check_contrast(t_url):
-    # Setup options for headless Chrome
-    options = core_modules.Options()
-    options.add_argument("--headless")
-    prefs = {"download.default_directory" : "/tmp/downloads/"}
-    options.add_experimental_option("prefs",prefs)
-
-    # Initialize the Chrome driver
-    driver = core_modules.webdriver.Chrome(options=options)
+def fetch_urls_from_tranco(limit=50000):
+    """Fetch the top `limit` URLs from the Tranco Top-1M list."""
+    tranco_url = "https://tranco-list.eu/top-1m.csv.zip"
+    urls = []
     try:
-        driver.get("https://color.a11y.com/Contrast/")
-
-        input_field = driver.find_element(core_modules.By.NAME, "urltotest")
-        
-        input_field.send_keys(t_url)
-
-        check_button = driver.find_element(core_modules.By.NAME, "submitbutton")
-
-        check_button.click()
-
-        core_modules.time.sleep(5)
-
-        page_content = driver.execute_script("return document.body.innerHTML")
-        soup = core_modules.BeautifulSoup(page_content, 'html.parser')
-        failed = soup.find_all("div", class_="nocongratsbox")
-        passed = soup.find_all("div", class_="congratsbox")
-        driver.quit()
-        
-        if len(failed) > 0:
-            return "FAIL"
-        if len(passed) > 0:
-            return "PASS"
-
+        _log(f"Fetching Tranco Top-1M list (top {limit} entries)...")
+        response = core_modules.requests.get(tranco_url, timeout=60)
+        response.raise_for_status()
+        with core_modules.zipfile.ZipFile(core_modules.io.BytesIO(response.content)) as z:
+            csv_filename = z.namelist()[0]
+            with z.open(csv_filename) as csv_file:
+                reader = core_modules.csv.reader(core_modules.io.TextIOWrapper(csv_file, encoding="utf-8"))
+                for i, row in enumerate(reader):
+                    if i >= limit:
+                        break
+                    if len(row) >= 2:
+                        domain = row[1].strip()
+                        urls.append(f"https://{domain}/")
+        _log(f"Fetched {len(urls)} URLs from Tranco.")
     except Exception as e:
+        _log(f"Failed to fetch Tranco list: {e}")
+    return urls
 
-        print(e)
-        
-        return -1
-    
-    return 0
+
+def fetch_urls_from_majestic(limit=50000):
+    """Fetch the top `limit` URLs from the Majestic Million list."""
+    majestic_url = "https://downloads.majestic.com/majestic_million.csv"
+    urls = []
+    try:
+        _log(f"Fetching Majestic Million list (top {limit} entries)...")
+        response = core_modules.requests.get(majestic_url, timeout=60)
+        response.raise_for_status()
+        reader = core_modules.csv.DictReader(
+            core_modules.io.StringIO(response.text)
+        )
+        for i, row in enumerate(reader):
+            if i >= limit:
+                break
+            domain = row.get("Domain", "").strip()
+            if domain:
+                urls.append(f"https://{domain}/")
+        _log(f"Fetched {len(urls)} URLs from Majestic Million.")
+    except Exception as e:
+        _log(f"Failed to fetch Majestic Million list: {e}")
+    return urls
+
